@@ -1,186 +1,242 @@
-# Octo Code Agent 🐙
+# OctoCode Agent 🐙
 
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
-[![Crates.io](https://img.shields.io/crates/v/octo-code-agent)](https://crates.io/crates/octo-code-agent)
 
-A Rust-based AI coding assistant with parallel multi-agent coordination. Octo Code Agent autonomously performs coding tasks by orchestrating multiple AI agents working simultaneously on different parts of your codebase.
+**AI 코딩 에이전트** — 여러 에이전트가 동시에 코드를 분석하고 수정하는 터미널 기반 코딩 어시스턴트.
 
-## ✨ Features
+```
+  🐙 OctoCode Agent v0.1.0 (GLM 5)
+  Type your task, /help for commands, Ctrl-D to exit
 
-- **🧠 Parallel Agent Execution**: Coordinate multiple agents working simultaneously on different files
-- **🔧 Full Tool Suite**: File editing, bash commands, Git operations, code analysis
-- **📁 Context-Aware**: Reads your project structure and understands the codebase
-- **💬 Multiple Modes**: Interactive chat, single-command, and REPL modes
-- **🛡️ Permission System**: Safe execution with user approval for potentially dangerous operations
-- **💾 Session Persistence**: SQLite storage for conversation history and costs
-- **📊 Cost Tracking**: Real-time token usage and cost monitoring
-- **🎨 TUI Interface**: Terminal user interface with interactive dialogs
+  octo> Next.js 랜딩페이지 만들어줘
 
-## 🚀 Quick Start
-
-### Installation
-
-```bash
-# Install from crates.io
-cargo install octo-code-agent
-
-# Or build from source
-git clone https://github.com/YOUR_USERNAME/octo-code-agent
-cd octo-code-agent
-cargo install --path .
-
-# Initialize (requires Atlas Cloud API key)
-octo-code --setup
+  [team_create: landing-page]
+  [spawn_agent: layout]    ← 레이아웃 + 네비게이션
+  [spawn_agent: hero]      ← 히어로 섹션 + CTA
+  [spawn_agent: features]  ← 피처 카드 + 푸터
+  ...
+  ✓ Build succeeded. 3 agents, 12 files created.
 ```
 
-### Usage
+## 주요 기능
+
+- **병렬 멀티 에이전트** — 작업을 자동 분해하여 여러 에이전트가 동시에 작업
+- **팀 조율 시스템** — 파일 기반 태스크 보드, 인박스 메시징, 자동 스폰
+- **CodeRLM 통합** — tree-sitter 기반 코드 인텔리전스 (선택사항, 없어도 동작)
+- **6개 모델 지원** — GLM 5, GLM 4.7, Kimi K2.5, Qwen3 Max, MiniMax M2.1, DeepSeek V3.2
+- **비용 추적** — 실시간 토큰 사용량 + 원화(₩) 변환 표시
+- **세션 관리** — SQLite 기반 대화 히스토리, 세션 이어하기
+- **Rate Limit 대응** — 자동 재시도, 지수 백오프, 에이전트 stagger 스폰
+
+## 설치
 
 ```bash
-# Interactive mode (default)
+# 소스에서 빌드 (Rust 1.75+ 필요)
+git clone https://github.com/anthropics/octo-code-agent
+cd octo-code-agent
+cargo build --release
+
+# 설치
+cargo install --path crates/octo-cli
+
+# 또는 직접 복사
+cp target/release/octo-code ~/.local/bin/
+```
+
+### 원라인 설치
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anthropics/octo-code-agent/main/install.sh | bash
+```
+
+## API 키 설정
+
+Atlas Cloud API 키 하나로 모든 모델을 사용합니다.
+
+```bash
+# 방법 1: 환경변수 (권장)
+export ATLAS_API_KEY="your-key-here"
+
+# 방법 2: 처음 실행 시 자동 셋업 화면에서 입력
 octo-code
 
-# Single command mode
-octo-code -p "Fix the bug in main.rs"
-
-# REPL mode
-octo-code --repl
-
-# TUI mode
-octo-code --tui
-
-# Resume a session
-octo-code --session <session_id>
+# 방법 3: 설정 파일 직접 편집
+# macOS: ~/Library/Application Support/octo-code/config.json
+# Linux: ~/.config/octo-code/config.json
 ```
 
-## 📦 Architecture
+```json
+{
+  "api_key": "your-key-here",
+  "base_url": "https://api.atlascloud.ai"
+}
+```
 
-Octo Code Agent is structured as a Cargo workspace with 6 crates:
+## 사용법
+
+```bash
+# 인터랙티브 모드 (기본) — 모델 선택 → 작업 입력
+octo-code
+
+# 단일 명령 모드
+octo-code -p "main.rs의 버그를 고쳐줘"
+
+# 모델 지정
+octo-code -m "zai-org/glm-5"
+
+# REPL 모드
+octo-code --repl
+
+# TUI 모드
+octo-code --tui
+
+# 세션 이어하기
+octo-code --session <session_id>
+
+# JSON 출력
+octo-code -p "설명해줘" -f json
+
+# 디버그 로그
+octo-code -d
+```
+
+### 인터랙티브 명령어
+
+| 명령어 | 설명 |
+|--------|------|
+| `/help` | 도움말 |
+| `/model` | 현재 모델 확인 |
+| `/cost` | 토큰 사용량 + 비용 |
+| `/sessions` | 세션 목록 |
+| `/clear` | 세션 초기화 |
+| `/exit` | 종료 |
+
+## 지원 모델
+
+| 모델 | 벤더 | 파라미터 | 입력 ($/M) | 출력 ($/M) | 특징 |
+|------|-------|----------|-----------|-----------|------|
+| **GLM 5** | Zhipu AI | 745B MoE | $0.80 | $2.56 | Frontier agentic, MIT |
+| **GLM 4.7** | Zhipu AI | 358B MoE | $0.52 | $2.56 | Agent-optimized, 128K output |
+| **Kimi K2.5** | Moonshot | — | $0.50 | $2.50 | 256K context, multimodal |
+| **Qwen3 Max** | Alibaba | — | $1.20 | $6.00 | Flagship reasoning |
+| **MiniMax M2.1** | MiniMax | 230B MoE | $0.30 | $0.30 | 최저가 |
+| **DeepSeek V3.2** | DeepSeek | 685B MoE | $0.26 | $0.88 | IOI gold medal |
+
+## 아키텍처
 
 ```
 octo-code-agent/
-├── octo-core/          # Core types and traits
-├── octo-providers/     # LLM API providers (Atlas Cloud)
-├── octo-tools/         # Tool implementations
-├── octo-agent/         # Agent orchestrator
-├── octo-storage/       # SQLite persistence
-└── octo-cli/           # CLI binary
+├── crates/
+│   ├── octo-core/       # 핵심 타입, 설정, 에러, 모델 정의
+│   ├── octo-providers/  # LLM API 프로바이더 (OpenAI-compatible)
+│   ├── octo-tools/      # 도구 구현 (17개)
+│   ├── octo-agent/      # 에이전트 루프, 프롬프트, 스트리밍
+│   ├── octo-storage/    # SQLite 세션/메시지 저장
+│   └── octo-cli/        # CLI 바이너리, 인터랙티브 모드, TUI
+├── install.sh           # 원라인 설치 스크립트
+├── Makefile             # 빌드/배포 타겟
+└── .github/workflows/   # CI/CD (테스트, 릴리스 빌드)
 ```
 
-### Dependencies
+### 도구 목록
 
-- **Async Runtime**: Tokio
-- **HTTP Client**: Reqwest
-- **Database**: SQLx (SQLite)
-- **CLI Parsing**: Clap
-- **TUI**: Ratatui
-- **Serialization**: Serde
+| 도구 | 설명 |
+|------|------|
+| `bash` | 셸 명령 실행 |
+| `view` | 파일 읽기 |
+| `write` | 파일 생성 |
+| `edit` | 파일 수정 (문자열 치환) |
+| `ls` | 디렉토리 목록 |
+| `glob` | 패턴으로 파일 검색 |
+| `grep` | 정규식으로 코드 검색 |
+| `coderlm` | 코드 인텔리전스 (선택사항) |
+| `team_create` | 팀 생성 |
+| `team_delete` | 팀 삭제 |
+| `spawn_agent` | 에이전트 스폰 |
+| `task_create` | 태스크 생성 |
+| `task_get` | 태스크 조회 |
+| `task_update` | 태스크 업데이트 |
+| `task_list` | 태스크 목록 |
+| `send_message` | 메시지 전송 |
+| `check_inbox` | 메시지 수신 |
 
-## 🔄 How It Works
-
-1. **User Request**: You describe a coding task in natural language
-2. **Agent Coordination**: The main agent spawns sub-agents for parallel work
-3. **Tool Execution**: Agents autonomously use tools (read files, run tests, edit code)
-4. **Iterative Refinement**: Agents coordinate results and refine solutions
-5. **Completion**: Final solution presented with execution results
-
-### Example Flow
+### 병렬 처리 흐름
 
 ```
-User: "Add error handling to the authentication module"
-  ↓
-Agent 1: Analyzes authentication.rs, identifies error-prone sections
-Agent 2: Creates error types in errors.rs
-Agent 3: Updates function signatures with Result returns
-Agent 4: Writes tests for error cases
-  ↓
-Coordinated result: Complete error handling implementation
+사용자 요청
+    │
+    ▼
+┌─────────────┐
+│  리드 에이전트  │ ← coderlm/grep으로 코드 분석
+│  (Team Lead)  │
+└──────┬──────┘
+       │ spawn_agent × N
+       ├──────────────┬──────────────┐
+       ▼              ▼              ▼
+  ┌─────────┐   ┌─────────┐   ┌─────────┐
+  │ Agent 1 │   │ Agent 2 │   │ Agent 3 │
+  │ (impl)  │   │ (tests) │   │ (docs)  │
+  └────┬────┘   └────┬────┘   └────┬────┘
+       │              │              │
+       └──────────────┴──────────────┘
+                      │ send_message → check_inbox
+                      ▼
+               ┌─────────────┐
+               │  리드 에이전트  │ ← 빌드/테스트 검증
+               │  결과 통합     │
+               └─────────────┘
 ```
 
-## 🛠️ Tools Available
+### 파일 기반 조율
 
-| Tool | Description | Permission Required |
-|------|-------------|-------------------|
-| `bash` | Execute shell commands | ⚠️ Dangerous commands |
-| `view` | Read file contents | No |
-| `write` | Create new files | Yes |
-| `edit` | Edit existing files | Yes |
-| `ls` | List directory contents | No |
-| `glob` | Find files by pattern | No |
-| `grep` | Search code with regex | No |
-| `coderlm` | Code intelligence | No |
-| `team_*` | Multi-agent coordination | Yes |
-| `task_*` | Task management | Yes |
+```
+~/.octo-code/
+├── teams/{team-name}/
+│   ├── config.json         # 팀 설정, 멤버 목록
+│   └── inboxes/
+│       └── {agent}.json    # 에이전트별 메시지 큐
+└── tasks/{team-name}/
+    ├── counter.json        # 태스크 ID 카운터
+    └── {id}.json           # 개별 태스크
+```
 
-## 🔐 Safety & Permissions
+## CodeRLM (선택사항)
 
-Octo Code Agent uses a permission system to ensure safe execution:
-
-- **Automatic approval**: Safe commands (ls, git status, etc.)
-- **Manual approval**: Dangerous commands (rm, write system files, etc.)
-- **Batch mode**: Use `-p` flag for fully automatic execution (use with caution)
-
-## 💰 Cost Management
-
-Uses [Atlas Cloud](https://atlas.nomic.ai/) for LLM access with transparent pricing:
-
-| Model | Input ($/M) | Output ($/M) | Purpose |
-|-------|-------------|--------------|---------|
-| `deepseek-ai/deepseek-v3.2-special` | $0.27 | $0.41 | Default, cost-efficient |
-| `zai-org/glm-5` | $0.80 | $2.56 | Agent-optimized |
-| `moonshotai/kimi-k2.5` | $0.50 | $2.50 | Long context |
-| `qwen/qwen3-max-2026-01-23` | $1.20 | $6.00 | Flagship |
-
-Cost = (input_tokens / 1M × input_price) + (output_tokens / 1M × output_price)
-
-## 🧪 Development
+[CodeRLM](https://github.com/JaredStewart/coderlm) 서버가 실행 중이면 자동 감지하여 tree-sitter 기반 코드 인텔리전스를 사용합니다. 없으면 `grep`/`glob`/`view`로 대체합니다.
 
 ```bash
-# Build
-cargo build
+# CodeRLM 서버 실행 (선택사항)
+cd coderlm/server && npm start
+# → http://127.0.0.1:9999 에서 실행
 
-# Run tests
-cargo test
-
-# Run with debug logging
-RUST_LOG=debug cargo run -- -p "Add logging to the project"
-
-# Build release binary
-cargo build --release
+# octo-code 실행 시 자동 감지
+octo-code
+# ✓ CodeRLM connected  ← 연결 성공 시 표시
 ```
 
-### Adding New Tools
+## 개발
 
-1. Implement the `Tool` trait in `crates/octo-tools/src/`
-2. Register the tool in `crates/octo-tools/src/lib.rs`
-3. Add to the tools registry
+```bash
+# 빌드
+cargo build
 
-## 🤝 Contributing
+# 테스트
+cargo test --workspace
 
-Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+# 릴리스 빌드
+cargo build --release
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+# Clippy
+cargo clippy --workspace
 
-## 📄 License
+# 포맷
+cargo fmt --all
+```
 
-MIT License - see [LICENSE](LICENSE) for details.
+## 라이선스
 
-## 📚 Documentation
-
-- [API Documentation](docs/api.md)
-- [Architecture Overview](docs/architecture.md)
-- [Tool Development Guide](docs/tool-development.md)
-- [Provider Integration](docs/providers.md)
-
-## 🙏 Acknowledgments
-
-- Built with ❤️ in Rust
-- Powered by [Atlas Cloud](https://atlas.nomic.ai/)
-- Inspired by modern AI coding assistants
+MIT License
 
 ---
 
