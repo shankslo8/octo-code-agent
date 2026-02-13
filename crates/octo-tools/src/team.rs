@@ -317,7 +317,7 @@ impl Tool for SpawnAgentTool {
         let member_count = config.members.len(); // includes the one we just added
         if member_count > 2 {
             // First spawned agent (member #2) starts immediately, subsequent ones stagger
-            let delay_secs = (member_count - 2) as u64 * 3;
+            let delay_secs = (member_count - 2) as u64 * 8;
             if delay_secs > 0 {
                 tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
             }

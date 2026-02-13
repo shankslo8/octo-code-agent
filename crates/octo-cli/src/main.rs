@@ -51,6 +51,10 @@ struct Cli {
     #[arg(short, long)]
     model: Option<String>,
 
+    /// API provider: atlas or openrouter (overrides config)
+    #[arg(long)]
+    provider: Option<String>,
+
     /// Team name (for spawned team agents)
     #[arg(long, env = "OCTO_TEAM_NAME")]
     team_name: Option<String>,
@@ -90,23 +94,44 @@ async fn main() -> Result<()> {
     let mut config = octo_core::config::load_config(cli.working_dir.clone())
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    // If no API key, show setup screen (interactive modes only)
-    if !config.has_api_key() && cli.prompt.is_none() {
-        match setup::run_setup()? {
-            Some(key) => {
-                config.api_key = Some(key);
+    // Apply --provider flag if set
+    if let Some(ref provider_str) = cli.provider {
+        match provider_str.to_lowercase().as_str() {
+            "atlas" | "atlascloud" | "atlas_cloud" => {
+                config.provider_type = octo_core::config::ProviderType::AtlasCloud;
             }
-            None => {
-                eprintln!("Setup cancelled. Set ATLAS_API_KEY env var or run again to configure.");
-                return Ok(());
+            "openrouter" | "open_router" => {
+                config.provider_type = octo_core::config::ProviderType::OpenRouter;
+            }
+            _ => {
+                anyhow::bail!("Unknown provider '{}'. Use 'atlas' or 'openrouter'.", provider_str);
             }
         }
     }
 
-    if !config.has_api_key() {
-        anyhow::bail!(
-            "No API key found. Set ATLAS_API_KEY env var, or run octo-code interactively to configure."
-        );
+    // For non-interactive modes, check API key upfront
+    // Interactive mode handles key input in its own flow
+    if cli.prompt.is_some() || cli.repl || cli.tui {
+        if !config.has_any_api_key() {
+            if cli.prompt.is_some() {
+                anyhow::bail!(
+                    "No API key found. Set ATLAS_API_KEY or OPENROUTER_API_KEY env var, or run octo-code interactively to configure."
+                );
+            }
+            // For repl/tui, show setup screen
+            match setup::run_setup()? {
+                Some(key) => {
+                    config.api_key = Some(key.clone());
+                    if config.api_keys.is_empty() {
+                        config.api_keys.push(key);
+                    }
+                }
+                None => {
+                    eprintln!("Setup cancelled. Set ATLAS_API_KEY or OPENROUTER_API_KEY env var.");
+                    return Ok(());
+                }
+            }
+        }
     }
 
     let db = octo_storage::Database::open(&config)

@@ -99,6 +99,20 @@ impl Agent {
     }
 }
 
+/// Truncate tool result to avoid sending huge content to the API
+fn truncate_tool_result(content: &str, max_chars: usize) -> String {
+    if content.len() <= max_chars {
+        return content.to_string();
+    }
+    let boundary = content.floor_char_boundary(max_chars);
+    format!(
+        "{}\n\n... [truncated: {} total chars, showing first {}]",
+        &content[..boundary],
+        content.len(),
+        max_chars,
+    )
+}
+
 /// Estimate token count from text (rough: ~4 chars per token)
 fn estimate_tokens(text: &str) -> u64 {
     (text.len() as u64) / 4
@@ -195,27 +209,34 @@ async fn agent_loop(
         // Trim messages to fit context window
         trim_messages_to_fit(&mut messages, context_window, &system_prompt);
 
-        let mut event_stream = match provider
-            .stream_response(&messages, &system_prompt, &tool_defs)
-            .await
-        {
-            Ok(stream) => stream,
-            Err(octo_core::error::ProviderError::RateLimited { retry_after_ms }) => {
-                let _ = tx
-                    .send(AgentEvent::Error {
-                        error: format!(
-                            "Rate limited. Retrying in {:.1}s...",
-                            retry_after_ms as f64 / 1000.0
-                        ),
-                    })
-                    .await;
-                tokio::time::sleep(std::time::Duration::from_millis(retry_after_ms)).await;
-                // Retry once more at agent level
-                provider
+        let mut event_stream = 'retry: {
+            let mut last_err = None;
+            for agent_attempt in 0..3u32 {
+                match provider
                     .stream_response(&messages, &system_prompt, &tool_defs)
-                    .await?
+                    .await
+                {
+                    Ok(stream) => break 'retry stream,
+                    Err(octo_core::error::ProviderError::RateLimited { retry_after_ms }) => {
+                        let wait = retry_after_ms.max(5_000) * (agent_attempt as u64 + 1);
+                        let _ = tx
+                            .send(AgentEvent::Error {
+                                error: format!(
+                                    "Rate limited. Waiting {:.0}s... (attempt {}/3)",
+                                    wait as f64 / 1000.0,
+                                    agent_attempt + 1,
+                                ),
+                            })
+                            .await;
+                        tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+                        last_err = Some(octo_core::error::ProviderError::RateLimited {
+                            retry_after_ms: wait,
+                        });
+                    }
+                    Err(e) => return Err(OctoError::Provider(e)),
+                }
             }
-            Err(e) => return Err(OctoError::Provider(e)),
+            return Err(OctoError::Provider(last_err.unwrap()));
         };
 
         let (assistant_msg, finish_reason, usage) =
@@ -295,10 +316,13 @@ async fn agent_loop(
                             .await;
                     }
 
+                    // Truncate large tool results to avoid blowing up token usage
+                    let truncated_content = truncate_tool_result(&result.content, 30_000);
+
                     // Wrap tool result with markers for prompt injection defense
                     let wrapped_content = format!(
                         "<tool_output tool=\"{}\">\n{}\n</tool_output>",
-                        call_name, result.content
+                        call_name, truncated_content
                     );
 
                     tool_results.push(ContentPart::ToolResult {

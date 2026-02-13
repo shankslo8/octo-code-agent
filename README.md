@@ -24,7 +24,7 @@
 - **병렬 멀티 에이전트** — 작업을 자동 분해하여 여러 에이전트가 동시에 작업
 - **팀 조율 시스템** — 파일 기반 태스크 보드, 인박스 메시징, 자동 스폰
 - **CodeRLM 통합** — tree-sitter 기반 코드 인텔리전스 (선택사항, 없어도 동작)
-- **6개 모델 지원** — GLM 5, GLM 4.7, Kimi K2.5, Qwen3 Max, MiniMax M2.1, DeepSeek V3.2
+- **7개 모델 지원** — GLM 5, GLM 4.7, DeepSeek V3.2, Qwen3 Max, Qwen3 Coder, Kimi K2 Thinking, MiniMax M2.5
 - **비용 추적** — 실시간 토큰 사용량 + 원화(₩) 변환 표시
 - **세션 관리** — SQLite 기반 대화 히스토리, 세션 이어하기
 - **Rate Limit 대응** — 자동 재시도, 지수 백오프, 에이전트 stagger 스폰
@@ -114,14 +114,15 @@ octo-code -d
 
 ## 지원 모델
 
-| 모델 | 벤더 | 파라미터 | 입력 ($/M) | 출력 ($/M) | 특징 |
-|------|-------|----------|-----------|-----------|------|
-| **GLM 5** | Zhipu AI | 745B MoE | $0.80 | $2.56 | Frontier agentic, MIT |
-| **GLM 4.7** | Zhipu AI | 358B MoE | $0.52 | $2.56 | Agent-optimized, 128K output |
-| **Kimi K2.5** | Moonshot | — | $0.50 | $2.50 | 256K context, multimodal |
-| **Qwen3 Max** | Alibaba | — | $1.20 | $6.00 | Flagship reasoning |
-| **MiniMax M2.1** | MiniMax | 230B MoE | $0.30 | $0.30 | 최저가 |
-| **DeepSeek V3.2** | DeepSeek | 685B MoE | $0.26 | $0.88 | IOI gold medal |
+| 모델 | 벤더 | 입력 ($/M) | 출력 ($/M) | 컨텍스트 | 특징 |
+|------|-------|-----------|-----------|---------|------|
+| **GLM 5** | Zhipu AI | $0.80 | $2.56 | 202K | 745B MoE, 기본 모델 |
+| **GLM 4.7** | Zhipu AI | $0.52 | $1.75 | 202K | 경제적, 131K output |
+| **DeepSeek V3.2** | DeepSeek | $0.26 | $0.38 | 163K | 685B MoE, 최저가 |
+| **Qwen3 Max** | Alibaba | $1.20 | $6.00 | 252K | Flagship reasoning |
+| **Qwen3 Coder** | Alibaba | $0.78 | $3.80 | 262K | 480B MoE, 코드 특화 |
+| **Kimi K2 Thinking** | Moonshot | $0.60 | $2.50 | 262K | Deep reasoning |
+| **MiniMax M2.5** | MiniMax | $0.29 | $0.95 | 196K | 경량, 빠른 응답 |
 
 ## 아키텍처
 

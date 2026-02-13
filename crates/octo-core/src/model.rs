@@ -26,6 +26,11 @@ pub enum ModelVendor {
     Alibaba,
     MiniMax,
     DeepSeek,
+    Anthropic,
+    OpenAI,
+    Google,
+    Meta,
+    Mistral,
 }
 
 impl fmt::Display for ModelVendor {
@@ -36,6 +41,11 @@ impl fmt::Display for ModelVendor {
             Self::Alibaba => write!(f, "Alibaba"),
             Self::MiniMax => write!(f, "MiniMax"),
             Self::DeepSeek => write!(f, "DeepSeek"),
+            Self::Anthropic => write!(f, "Anthropic"),
+            Self::OpenAI => write!(f, "OpenAI"),
+            Self::Google => write!(f, "Google"),
+            Self::Meta => write!(f, "Meta"),
+            Self::Mistral => write!(f, "Mistral"),
         }
     }
 }
@@ -74,42 +84,25 @@ impl Model {
     }
 }
 
-/// All models routed through Atlas Cloud unified API
+/// All models (Atlas Cloud is the source of truth)
 pub fn builtin_models() -> HashMap<ModelId, Model> {
+    atlas_cloud_models()
+}
+
+/// Models available on Atlas Cloud (api.atlascloud.ai)
+/// Only these models are also registered for OpenRouter.
+pub fn atlas_cloud_models() -> HashMap<ModelId, Model> {
     let mut m = HashMap::new();
 
-    // GLM-4.7 (Zhipu AI) — 358B MoE, agent-optimized, 128K output
+    // GLM-5 (Zhipu AI) — 745B MoE, strong coding & reasoning
     m.insert(
-        ModelId("zai-org/glm-4.7".into()),
+        ModelId("z-ai/glm-5".into()),
         Model {
-            id: ModelId("zai-org/glm-4.7".into()),
-            vendor: ModelVendor::Zhipu,
-            display_name: "GLM-4.7".into(),
-            context_window: 200_000,
-            max_output_tokens: 128_000,
-            capabilities: ModelCapabilities {
-                supports_tool_use: true,
-                supports_streaming: true,
-                supports_thinking: true,
-                supports_images: true,
-            },
-            pricing: ModelPricing {
-                cost_per_1m_input: 0.52,
-                cost_per_1m_output: 2.56,
-                cost_per_1m_input_cached: None,
-            },
-        },
-    );
-
-    // GLM-5 (Zhipu AI) — 745B MoE (44B active), MIT license, frontier agentic
-    m.insert(
-        ModelId("zai-org/glm-5".into()),
-        Model {
-            id: ModelId("zai-org/glm-5".into()),
+            id: ModelId("z-ai/glm-5".into()),
             vendor: ModelVendor::Zhipu,
             display_name: "GLM-5".into(),
-            context_window: 200_000,
-            max_output_tokens: 128_000,
+            context_window: 202_752,
+            max_output_tokens: 131_072,
             capabilities: ModelCapabilities {
                 supports_tool_use: true,
                 supports_streaming: true,
@@ -119,20 +112,20 @@ pub fn builtin_models() -> HashMap<ModelId, Model> {
             pricing: ModelPricing {
                 cost_per_1m_input: 0.80,
                 cost_per_1m_output: 2.56,
-                cost_per_1m_input_cached: None,
+                cost_per_1m_input_cached: Some(0.16),
             },
         },
     );
 
-    // Kimi K2.5 (Moonshot AI) — ultra-long context, native multimodality
+    // GLM-4.7 (Zhipu AI) — efficient MoE, good coding
     m.insert(
-        ModelId("moonshotai/kimi-k2.5".into()),
+        ModelId("z-ai/glm-4.7".into()),
         Model {
-            id: ModelId("moonshotai/kimi-k2.5".into()),
-            vendor: ModelVendor::Moonshot,
-            display_name: "Kimi K2.5".into(),
-            context_window: 256_000,
-            max_output_tokens: 32_768,
+            id: ModelId("z-ai/glm-4.7".into()),
+            vendor: ModelVendor::Zhipu,
+            display_name: "GLM-4.7".into(),
+            context_window: 202_752,
+            max_output_tokens: 131_072,
             capabilities: ModelCapabilities {
                 supports_tool_use: true,
                 supports_streaming: true,
@@ -140,27 +133,50 @@ pub fn builtin_models() -> HashMap<ModelId, Model> {
                 supports_images: true,
             },
             pricing: ModelPricing {
-                cost_per_1m_input: 0.50,
-                cost_per_1m_output: 2.50,
+                cost_per_1m_input: 0.52,
+                cost_per_1m_output: 1.75,
                 cost_per_1m_input_cached: None,
             },
         },
     );
 
-    // Qwen3 Max (Alibaba) — flagship, ultra-long context, code gen
+    // DeepSeek V3.2 (DeepSeek) — very cheap, strong coding
+    m.insert(
+        ModelId("deepseek/deepseek-v3.2".into()),
+        Model {
+            id: ModelId("deepseek/deepseek-v3.2".into()),
+            vendor: ModelVendor::DeepSeek,
+            display_name: "DeepSeek V3.2".into(),
+            context_window: 163_840,
+            max_output_tokens: 65_536,
+            capabilities: ModelCapabilities {
+                supports_tool_use: true,
+                supports_streaming: true,
+                supports_thinking: true,
+                supports_images: false,
+            },
+            pricing: ModelPricing {
+                cost_per_1m_input: 0.26,
+                cost_per_1m_output: 0.38,
+                cost_per_1m_input_cached: None,
+            },
+        },
+    );
+
+    // Qwen3 Max (Alibaba) — flagship, ultra-long context, strong reasoning
     m.insert(
         ModelId("qwen/qwen3-max-2026-01-23".into()),
         Model {
             id: ModelId("qwen/qwen3-max-2026-01-23".into()),
             vendor: ModelVendor::Alibaba,
             display_name: "Qwen3 Max".into(),
-            context_window: 131_072,
-            max_output_tokens: 32_768,
+            context_window: 252_000,
+            max_output_tokens: 32_000,
             capabilities: ModelCapabilities {
                 supports_tool_use: true,
                 supports_streaming: true,
                 supports_thinking: true,
-                supports_images: false,
+                supports_images: true,
             },
             pricing: ModelPricing {
                 cost_per_1m_input: 1.20,
@@ -170,14 +186,14 @@ pub fn builtin_models() -> HashMap<ModelId, Model> {
         },
     );
 
-    // MiniMax M2.1 — 230B MoE, SWE-bench 74%, MIT license
+    // Qwen3 Coder (Alibaba) — 480B MoE, code-optimized, 262K context
     m.insert(
-        ModelId("minimaxai/minimax-m2.1".into()),
+        ModelId("Qwen/Qwen3-Coder".into()),
         Model {
-            id: ModelId("minimaxai/minimax-m2.1".into()),
-            vendor: ModelVendor::MiniMax,
-            display_name: "MiniMax M2.1".into(),
-            context_window: 128_000,
+            id: ModelId("Qwen/Qwen3-Coder".into()),
+            vendor: ModelVendor::Alibaba,
+            display_name: "Qwen3 Coder".into(),
+            context_window: 262_144,
             max_output_tokens: 65_536,
             capabilities: ModelCapabilities {
                 supports_tool_use: true,
@@ -186,22 +202,22 @@ pub fn builtin_models() -> HashMap<ModelId, Model> {
                 supports_images: false,
             },
             pricing: ModelPricing {
-                cost_per_1m_input: 0.30,
-                cost_per_1m_output: 0.30,
+                cost_per_1m_input: 0.78,
+                cost_per_1m_output: 3.80,
                 cost_per_1m_input_cached: None,
             },
         },
     );
 
-    // DeepSeek V3.2 — 685B MoE, cheapest, tool_use supported
+    // Kimi K2 Thinking (Moonshot) — deep reasoning, long context
     m.insert(
-        ModelId("deepseek-ai/deepseek-v3.2".into()),
+        ModelId("moonshotai/kimi-k2-thinking".into()),
         Model {
-            id: ModelId("deepseek-ai/deepseek-v3.2".into()),
-            vendor: ModelVendor::DeepSeek,
-            display_name: "DeepSeek V3.2".into(),
-            context_window: 128_000,
-            max_output_tokens: 32_768,
+            id: ModelId("moonshotai/kimi-k2-thinking".into()),
+            vendor: ModelVendor::Moonshot,
+            display_name: "Kimi K2 Thinking".into(),
+            context_window: 262_144,
+            max_output_tokens: 65_536,
             capabilities: ModelCapabilities {
                 supports_tool_use: true,
                 supports_streaming: true,
@@ -209,9 +225,32 @@ pub fn builtin_models() -> HashMap<ModelId, Model> {
                 supports_images: false,
             },
             pricing: ModelPricing {
-                cost_per_1m_input: 0.26,
-                cost_per_1m_output: 0.88,
+                cost_per_1m_input: 0.60,
+                cost_per_1m_output: 2.50,
                 cost_per_1m_input_cached: None,
+            },
+        },
+    );
+
+    // MiniMax M2.5 — lightweight, fast & cheap
+    m.insert(
+        ModelId("minimax/minimax-m2.5".into()),
+        Model {
+            id: ModelId("minimax/minimax-m2.5".into()),
+            vendor: ModelVendor::MiniMax,
+            display_name: "MiniMax M2.5".into(),
+            context_window: 196_608,
+            max_output_tokens: 65_536,
+            capabilities: ModelCapabilities {
+                supports_tool_use: true,
+                supports_streaming: true,
+                supports_thinking: false,
+                supports_images: false,
+            },
+            pricing: ModelPricing {
+                cost_per_1m_input: 0.29,
+                cost_per_1m_output: 0.95,
+                cost_per_1m_input_cached: Some(0.03),
             },
         },
     );
@@ -219,11 +258,16 @@ pub fn builtin_models() -> HashMap<ModelId, Model> {
     m
 }
 
+/// OpenRouter models — same as Atlas Cloud (only Atlas Cloud models are registered)
+pub fn openrouter_models() -> HashMap<ModelId, Model> {
+    atlas_cloud_models()
+}
+
 pub fn get_model(id: &ModelId) -> Option<Model> {
     builtin_models().remove(id)
 }
 
 pub fn get_default_model() -> Model {
-    get_model(&ModelId("zai-org/glm-4.7".into()))
+    get_model(&ModelId("z-ai/glm-5".into()))
         .expect("Default model must exist")
 }

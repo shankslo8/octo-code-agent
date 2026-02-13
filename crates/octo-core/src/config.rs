@@ -7,6 +7,23 @@ use crate::model::ModelId;
 /// Atlas Cloud base URL (OpenAI-compatible unified gateway)
 const DEFAULT_BASE_URL: &str = "https://api.atlascloud.ai";
 
+/// OpenRouter base URL
+const OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api";
+
+/// API provider type
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderType {
+    AtlasCloud,
+    OpenRouter,
+}
+
+impl Default for ProviderType {
+    fn default() -> Self {
+        Self::AtlasCloud
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default = "default_working_dir")]
@@ -18,6 +35,18 @@ pub struct AppConfig {
     /// Single API key for Atlas Cloud (covers all models)
     #[serde(default)]
     pub api_key: Option<String>,
+
+    /// Multiple API keys for load balancing (randomly rotated per request)
+    #[serde(default)]
+    pub api_keys: Vec<String>,
+
+    /// API provider type (atlas_cloud or open_router)
+    #[serde(default)]
+    pub provider_type: ProviderType,
+
+    /// OpenRouter API key (separate from Atlas Cloud key)
+    #[serde(default)]
+    pub openrouter_api_key: Option<String>,
 
     /// Base URL for the API gateway (default: Atlas Cloud)
     #[serde(default = "default_base_url")]
@@ -49,6 +78,9 @@ impl Default for AppConfig {
             working_dir: default_working_dir(),
             data_dir: default_data_dir(),
             api_key: None,
+            api_keys: vec![],
+            provider_type: ProviderType::default(),
+            openrouter_api_key: None,
             base_url: default_base_url(),
             agent: AgentConfig::default(),
             shell: ShellConfig::default(),
@@ -101,19 +133,19 @@ pub struct AgentConfig {
 }
 
 fn default_coder_model() -> ModelId {
-    ModelId("zai-org/glm-4.7".into())
+    ModelId("z-ai/glm-5".into())
 }
 
 fn default_fast_model() -> ModelId {
-    ModelId("minimaxai/minimax-m2.1".into())
+    ModelId("minimax/minimax-m2.5".into())
 }
 
 fn default_reasoning_model() -> ModelId {
-    ModelId("qwen/qwen3-max-2026-01-23".into())
+    ModelId("Qwen/Qwen3-Coder".into())
 }
 
 fn default_long_context_model() -> ModelId {
-    ModelId("moonshotai/kimi-k2.5".into())
+    ModelId("moonshotai/kimi-k2-thinking".into())
 }
 
 fn default_max_tokens() -> u64 {
@@ -221,6 +253,15 @@ fn merge_config(base: &mut AppConfig, overlay: AppConfig) {
     if overlay.api_key.is_some() {
         base.api_key = overlay.api_key;
     }
+    if !overlay.api_keys.is_empty() {
+        base.api_keys = overlay.api_keys;
+    }
+    if overlay.openrouter_api_key.is_some() {
+        base.openrouter_api_key = overlay.openrouter_api_key;
+    }
+    if overlay.provider_type != ProviderType::default() {
+        base.provider_type = overlay.provider_type;
+    }
     if overlay.base_url != default_base_url() {
         base.base_url = overlay.base_url;
     }
@@ -254,7 +295,40 @@ fn merge_config(base: &mut AppConfig, overlay: AppConfig) {
 }
 
 fn detect_api_key(config: &mut AppConfig) {
+    // Check for OpenRouter API key
+    if config.openrouter_api_key.is_none() {
+        if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
+            if !key.is_empty() {
+                config.openrouter_api_key = Some(key);
+            }
+        }
+    }
+
+    // Check for multiple Atlas keys: ATLAS_API_KEYS=key1,key2,key3
+    if config.api_keys.is_empty() {
+        if let Ok(keys) = std::env::var("ATLAS_API_KEYS") {
+            let parsed: Vec<String> = keys
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !parsed.is_empty() {
+                config.api_keys = parsed;
+            }
+        }
+    }
+
+    // If we have multiple keys, use the first as the primary
+    if config.api_key.is_none() && !config.api_keys.is_empty() {
+        config.api_key = Some(config.api_keys[0].clone());
+        return;
+    }
+
     if config.api_key.is_some() {
+        // Ensure single key is also in the keys list
+        if config.api_keys.is_empty() {
+            config.api_keys.push(config.api_key.clone().unwrap());
+        }
         return;
     }
 
@@ -269,10 +343,18 @@ fn detect_api_key(config: &mut AppConfig) {
     for env_var in &env_vars {
         if let Ok(key) = std::env::var(env_var) {
             if !key.is_empty() {
-                config.api_key = Some(key);
+                config.api_key = Some(key.clone());
+                if config.api_keys.is_empty() {
+                    config.api_keys.push(key);
+                }
                 return;
             }
         }
+    }
+
+    // If no Atlas key found but OpenRouter key exists, auto-detect provider
+    if config.api_key.is_none() && config.openrouter_api_key.is_some() {
+        config.provider_type = ProviderType::OpenRouter;
     }
 }
 
@@ -295,5 +377,42 @@ impl AppConfig {
 
     pub fn has_api_key(&self) -> bool {
         self.api_key.as_ref().map_or(false, |k| !k.is_empty())
+    }
+
+    /// Check if any provider has an API key configured
+    pub fn has_any_api_key(&self) -> bool {
+        self.has_api_key() || self.openrouter_api_key.is_some()
+    }
+
+    pub fn get_api_keys(&self) -> Vec<String> {
+        if !self.api_keys.is_empty() {
+            self.api_keys.clone()
+        } else if let Some(ref key) = self.api_key {
+            vec![key.clone()]
+        } else {
+            vec![]
+        }
+    }
+
+    /// Get API keys for the currently active provider
+    pub fn get_active_api_keys(&self) -> Vec<String> {
+        match self.provider_type {
+            ProviderType::OpenRouter => {
+                if let Some(ref key) = self.openrouter_api_key {
+                    vec![key.clone()]
+                } else {
+                    vec![]
+                }
+            }
+            ProviderType::AtlasCloud => self.get_api_keys(),
+        }
+    }
+
+    /// Get base URL for the currently active provider
+    pub fn get_active_base_url(&self) -> String {
+        match self.provider_type {
+            ProviderType::OpenRouter => OPENROUTER_BASE_URL.to_string(),
+            ProviderType::AtlasCloud => self.base_url.clone(),
+        }
     }
 }

@@ -51,17 +51,45 @@ fn create_provider_for_model(
     config: &AppConfig,
     model_id: &ModelId,
 ) -> Result<Arc<dyn Provider>, ProviderError> {
-    let model = model::get_model(model_id)
-        .ok_or_else(|| ProviderError::UnsupportedModel(model_id.to_string()))?;
+    // Try to find model in registry; for custom models, create a generic fallback
+    let model = model::get_model(model_id).unwrap_or_else(|| model::Model {
+        id: model_id.clone(),
+        vendor: model::ModelVendor::OpenAI, // generic
+        display_name: model_id.0.clone(),
+        context_window: 128_000,
+        max_output_tokens: 32_768,
+        capabilities: model::ModelCapabilities {
+            supports_tool_use: true,
+            supports_streaming: true,
+            supports_thinking: false,
+            supports_images: false,
+        },
+        pricing: model::ModelPricing {
+            cost_per_1m_input: 0.0,
+            cost_per_1m_output: 0.0,
+            cost_per_1m_input_cached: None,
+        },
+    });
 
-    let api_key = config.get_api_key().ok_or_else(|| {
-        ProviderError::MissingApiKey("ATLAS_API_KEY not set. Set via env var or config file.".into())
-    })?;
+    let api_keys = config.get_active_api_keys();
+    if api_keys.is_empty() {
+        let hint = match config.provider_type {
+            octo_core::config::ProviderType::OpenRouter => {
+                "OPENROUTER_API_KEY not set. Set via env var or config file."
+            }
+            octo_core::config::ProviderType::AtlasCloud => {
+                "ATLAS_API_KEY not set. Set via env var or config file."
+            }
+        };
+        return Err(ProviderError::MissingApiKey(hint.into()));
+    }
+
+    let base_url = config.get_active_base_url();
 
     Ok(Arc::new(OpenAiProvider::new(
-        api_key.to_string(),
+        api_keys,
         model,
-        config.base_url.clone(),
+        base_url,
         config.agent.max_tokens,
     )))
 }

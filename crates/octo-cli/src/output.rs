@@ -19,8 +19,6 @@ impl Default for Pricing {
     }
 }
 
-const USD_TO_KRW: f64 = 1450.0;
-
 pub async fn render_stream(
     rx: &mut mpsc::Receiver<AgentEvent>,
     quiet: bool,
@@ -38,7 +36,6 @@ pub async fn render_stream(
             }
             AgentEvent::ContentDelta { text } => {
                 if first_content {
-                    // Clear "Thinking..."
                     if !quiet {
                         eprint!("\r\x1b[K");
                     }
@@ -84,22 +81,20 @@ pub async fn render_stream(
                     if let Some(p) = pricing {
                         let cost_usd = (input as f64 / 1_000_000.0) * p.cost_per_1m_input
                             + (output as f64 / 1_000_000.0) * p.cost_per_1m_output;
-                        let cost_krw = cost_usd * USD_TO_KRW;
 
                         eprintln!(
-                            "\n\x1b[90m[토큰] 입력 {} / 출력 {} / 합계 {}\x1b[0m",
+                            "\n\x1b[90m[tokens] in {} / out {} / total {}\x1b[0m",
                             format_tokens(input),
                             format_tokens(output),
                             format_tokens(total),
                         );
                         eprintln!(
-                            "\x1b[90m[비용] ${:.4} (\x1b[33m{}\x1b[90m)\x1b[0m",
+                            "\x1b[90m[cost] \x1b[33m${:.4}\x1b[0m",
                             cost_usd,
-                            format_krw(cost_krw),
                         );
                     } else {
                         eprintln!(
-                            "\n\x1b[90m[토큰] 입력 {} / 출력 {} / 합계 {}\x1b[0m",
+                            "\n\x1b[90m[tokens] in {} / out {} / total {}\x1b[0m",
                             format_tokens(input),
                             format_tokens(output),
                             format_tokens(total),
@@ -125,15 +120,5 @@ fn format_tokens(n: u64) -> String {
         format!("{:.1}K", n as f64 / 1_000.0)
     } else {
         format!("{n}")
-    }
-}
-
-fn format_krw(krw: f64) -> String {
-    if krw < 1.0 {
-        format!("{:.1}원", krw)
-    } else if krw < 1000.0 {
-        format!("{:.0}원", krw)
-    } else {
-        format!("{:.0}원", krw)
     }
 }

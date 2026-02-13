@@ -7,42 +7,59 @@ use octo_core::tool::ToolDefinition;
 use reqwest::Client;
 use std::sync::Arc;
 
-const MAX_RETRIES: u32 = 6;
-const INITIAL_BACKOFF_MS: u64 = 2000;
-const MAX_BACKOFF_MS: u64 = 60_000;
+const MAX_RETRIES: u32 = 8;
+const INITIAL_BACKOFF_MS: u64 = 5_000;
+const MAX_BACKOFF_MS: u64 = 120_000;
 
 pub struct OpenAiProvider {
     client: Client,
-    api_key: String,
+    api_keys: Vec<String>,
     model: Model,
     base_url: String,
     max_tokens: u64,
     last_request: Arc<tokio::sync::Mutex<std::time::Instant>>,
+    key_index: Arc<std::sync::atomic::AtomicUsize>,
 }
 
-/// Minimum interval between API requests (ms) to avoid rate limiting with a single key
-const MIN_REQUEST_INTERVAL_MS: u64 = 500;
+/// Minimum interval between API requests (ms) to avoid rate limiting
+const MIN_REQUEST_INTERVAL_MS: u64 = 1500;
 
 impl OpenAiProvider {
-    pub fn new(api_key: String, model: Model, base_url: String, max_tokens: u64) -> Self {
+    pub fn new(api_keys: Vec<String>, model: Model, base_url: String, max_tokens: u64) -> Self {
         Self {
             client: Client::new(),
-            api_key,
+            api_keys,
             model,
             base_url,
             max_tokens,
             last_request: Arc::new(tokio::sync::Mutex::new(
                 std::time::Instant::now() - std::time::Duration::from_secs(10),
             )),
+            key_index: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
-    /// Throttle requests to respect rate limits with a single API key
+    /// Get the next API key using round-robin rotation
+    fn next_api_key(&self) -> &str {
+        if self.api_keys.len() <= 1 {
+            return &self.api_keys[0];
+        }
+        let idx = self.key_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        &self.api_keys[idx % self.api_keys.len()]
+    }
+
+    /// Throttle requests to respect rate limits
     async fn throttle(&self) {
+        // With multiple keys, reduce throttle
+        let interval = if self.api_keys.len() > 1 {
+            MIN_REQUEST_INTERVAL_MS / self.api_keys.len() as u64
+        } else {
+            MIN_REQUEST_INTERVAL_MS
+        };
         let mut last = self.last_request.lock().await;
         let elapsed = last.elapsed().as_millis() as u64;
-        if elapsed < MIN_REQUEST_INTERVAL_MS {
-            let wait = MIN_REQUEST_INTERVAL_MS - elapsed;
+        if elapsed < interval {
+            let wait = interval - elapsed;
             tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
         }
         *last = std::time::Instant::now();
@@ -203,8 +220,10 @@ impl Provider for OpenAiProvider {
             let resp = match self
                 .client
                 .post(format!("{}/v1/chat/completions", self.base_url))
-                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Authorization", format!("Bearer {}", self.next_api_key()))
                 .header("Content-Type", "application/json")
+                .header("HTTP-Referer", "https://github.com/octo-code/octo-code-agent")
+                .header("X-Title", "OctoCode Agent")
                 .json(&body)
                 .send()
                 .await
@@ -284,8 +303,10 @@ impl Provider for OpenAiProvider {
             let resp = match self
                 .client
                 .post(format!("{}/v1/chat/completions", self.base_url))
-                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Authorization", format!("Bearer {}", self.next_api_key()))
                 .header("Content-Type", "application/json")
+                .header("HTTP-Referer", "https://github.com/octo-code/octo-code-agent")
+                .header("X-Title", "OctoCode Agent")
                 .json(&body)
                 .send()
                 .await

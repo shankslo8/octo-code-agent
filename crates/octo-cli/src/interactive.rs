@@ -1,4 +1,5 @@
 use anyhow::Result;
+use octo_core::config::ProviderType;
 use std::io::{self, BufRead, Write};
 
 /// Model choice for the interactive selector
@@ -11,50 +12,128 @@ struct ModelChoice {
 
 const MODELS: &[ModelChoice] = &[
     ModelChoice {
-        id: "zai-org/glm-5",
+        id: "z-ai/glm-5",
         name: "GLM 5",
         vendor: "Zhipu AI",
-        desc: "745B MoE, frontier agentic, MIT",
+        desc: "745B MoE, strong coding ($0.80/M)",
     },
     ModelChoice {
-        id: "zai-org/glm-4.7",
+        id: "z-ai/glm-4.7",
         name: "GLM 4.7",
         vendor: "Zhipu AI",
-        desc: "358B MoE, agent-optimized, 128K out",
+        desc: "Efficient MoE, 202K ctx ($0.52/M)",
     },
     ModelChoice {
-        id: "moonshotai/kimi-k2.5",
-        name: "Kimi K2.5",
-        vendor: "Moonshot",
-        desc: "Ultra-long context, multimodal",
+        id: "deepseek/deepseek-v3.2",
+        name: "DeepSeek V3.2",
+        vendor: "DeepSeek",
+        desc: "685B MoE, very cheap ($0.26/M)",
     },
     ModelChoice {
         id: "qwen/qwen3-max-2026-01-23",
         name: "Qwen3 Max",
         vendor: "Alibaba",
-        desc: "Flagship reasoning, code gen",
+        desc: "Flagship, 252K ctx ($1.20/M)",
     },
     ModelChoice {
-        id: "minimaxai/minimax-m2.1",
-        name: "MiniMax M2.1",
+        id: "Qwen/Qwen3-Coder",
+        name: "Qwen3 Coder",
+        vendor: "Alibaba",
+        desc: "480B MoE, code-optimized ($0.78/M)",
+    },
+    ModelChoice {
+        id: "moonshotai/kimi-k2-thinking",
+        name: "Kimi K2 Thinking",
+        vendor: "Moonshot",
+        desc: "Deep reasoning, 262K ctx ($0.60/M)",
+    },
+    ModelChoice {
+        id: "minimax/minimax-m2.5",
+        name: "MiniMax M2.5",
         vendor: "MiniMax",
-        desc: "230B MoE, cheapest ($0.30/M)",
-    },
-    ModelChoice {
-        id: "deepseek-ai/deepseek-v3.2",
-        name: "DeepSeek V3.2",
-        vendor: "DeepSeek",
-        desc: "685B MoE, IOI gold medal",
+        desc: "Lightweight, fast ($0.29/M)",
     },
 ];
 
-/// Show model selection menu and return the chosen ModelId
-fn select_model() -> Result<octo_core::model::ModelId> {
-    eprintln!("\x1b[1;36m  Select a model:\x1b[0m\n");
-    for (i, m) in MODELS.iter().enumerate() {
-        let default_marker = if i == 0 { " \x1b[33m← default\x1b[0m" } else { "" };
+/// Show provider selection menu
+fn select_provider(current: ProviderType) -> Result<ProviderType> {
+    let default_idx = match current {
+        ProviderType::AtlasCloud => 0,
+        ProviderType::OpenRouter => 1,
+    };
+
+    eprintln!("\x1b[1;36m  Select API provider:\x1b[0m\n");
+
+    let providers = [
+        ("Atlas Cloud", "api.atlascloud.ai", "GLM, Kimi, Qwen, DeepSeek"),
+        ("OpenRouter", "openrouter.ai", "GLM, Kimi, Qwen, DeepSeek"),
+    ];
+
+    for (i, (name, url, models)) in providers.iter().enumerate() {
+        let default_marker = if i == default_idx {
+            " \x1b[33m\u{2190} default\x1b[0m"
+        } else {
+            ""
+        };
         eprintln!(
             "    \x1b[1;33m[{}]\x1b[0m \x1b[1m{:<16}\x1b[0m \x1b[90m({})\x1b[0m  {}{}",
+            i + 1,
+            name,
+            url,
+            models,
+            default_marker,
+        );
+    }
+    eprintln!();
+
+    eprint!(
+        "  \x1b[1mProvider \x1b[33m[{}]\x1b[0m\x1b[1m:\x1b[0m ",
+        default_idx + 1
+    );
+    io::stderr().flush().ok();
+
+    let input = read_line_lossy()?;
+    let input = input.trim();
+
+    let idx = if input.is_empty() {
+        default_idx
+    } else {
+        match input.parse::<usize>() {
+            Ok(n) if n >= 1 && n <= providers.len() => n - 1,
+            _ => {
+                eprintln!("  \x1b[33mInvalid choice, using default.\x1b[0m");
+                default_idx
+            }
+        }
+    };
+
+    let chosen = match idx {
+        0 => ProviderType::AtlasCloud,
+        _ => ProviderType::OpenRouter,
+    };
+
+    let (name, url, _) = providers[idx];
+    eprintln!(
+        "\n  \x1b[32m\u{2713}\x1b[0m Using \x1b[1;36m{}\x1b[0m \x1b[90m({})\x1b[0m\n",
+        name, url
+    );
+
+    Ok(chosen)
+}
+
+/// Show model selection menu and return the chosen ModelId
+fn select_model(_provider: ProviderType) -> Result<octo_core::model::ModelId> {
+    let models = MODELS;
+
+    eprintln!("\x1b[1;36m  Select a model:\x1b[0m\n");
+    for (i, m) in models.iter().enumerate() {
+        let default_marker = if i == 0 {
+            " \x1b[33m\u{2190} default\x1b[0m"
+        } else {
+            ""
+        };
+        eprintln!(
+            "    \x1b[1;33m[{}]\x1b[0m \x1b[1m{:<20}\x1b[0m \x1b[90m({})\x1b[0m  {}{}",
             i + 1,
             m.name,
             m.vendor,
@@ -62,6 +141,12 @@ fn select_model() -> Result<octo_core::model::ModelId> {
             default_marker,
         );
     }
+
+    // Custom model option
+    eprintln!(
+        "    \x1b[1;33m[{}]\x1b[0m \x1b[90mCustom model ID...\x1b[0m",
+        models.len() + 1
+    );
     eprintln!();
 
     eprint!("  \x1b[1mModel \x1b[33m[1]\x1b[0m\x1b[1m:\x1b[0m ");
@@ -70,25 +155,173 @@ fn select_model() -> Result<octo_core::model::ModelId> {
     let input = read_line_lossy()?;
     let input = input.trim();
 
-    let idx = if input.is_empty() {
-        0
-    } else {
-        match input.parse::<usize>() {
-            Ok(n) if n >= 1 && n <= MODELS.len() => n - 1,
-            _ => {
-                eprintln!("  \x1b[33mInvalid choice, using default.\x1b[0m");
-                0
+    if input.is_empty() {
+        let chosen = &models[0];
+        eprintln!(
+            "\n  \x1b[32m\u{2713}\x1b[0m Using \x1b[1;36m{}\x1b[0m \x1b[90m({})\x1b[0m\n",
+            chosen.name, chosen.vendor
+        );
+        return Ok(octo_core::model::ModelId(chosen.id.to_string()));
+    }
+
+    match input.parse::<usize>() {
+        Ok(n) if n >= 1 && n <= models.len() => {
+            let chosen = &models[n - 1];
+            eprintln!(
+                "\n  \x1b[32m\u{2713}\x1b[0m Using \x1b[1;36m{}\x1b[0m \x1b[90m({})\x1b[0m\n",
+                chosen.name, chosen.vendor
+            );
+            Ok(octo_core::model::ModelId(chosen.id.to_string()))
+        }
+        Ok(n) if n == models.len() + 1 => {
+            // Custom model ID
+            eprint!("  \x1b[1mModel ID:\x1b[0m ");
+            io::stderr().flush().ok();
+            let custom = read_line_lossy()?;
+            let custom = custom.trim().to_string();
+            if custom.is_empty() {
+                eprintln!("  \x1b[33mEmpty input, using default.\x1b[0m");
+                let chosen = &models[0];
+                eprintln!(
+                    "\n  \x1b[32m\u{2713}\x1b[0m Using \x1b[1;36m{}\x1b[0m \x1b[90m({})\x1b[0m\n",
+                    chosen.name, chosen.vendor
+                );
+                Ok(octo_core::model::ModelId(chosen.id.to_string()))
+            } else {
+                eprintln!(
+                    "\n  \x1b[32m\u{2713}\x1b[0m Using custom model \x1b[1;36m{}\x1b[0m\n",
+                    custom
+                );
+                Ok(octo_core::model::ModelId(custom))
             }
         }
+        _ => {
+            // Try as direct model ID string
+            if input.contains('/') {
+                eprintln!(
+                    "\n  \x1b[32m\u{2713}\x1b[0m Using custom model \x1b[1;36m{}\x1b[0m\n",
+                    input
+                );
+                Ok(octo_core::model::ModelId(input.to_string()))
+            } else {
+                eprintln!("  \x1b[33mInvalid choice, using default.\x1b[0m");
+                let chosen = &models[0];
+                eprintln!(
+                    "\n  \x1b[32m\u{2713}\x1b[0m Using \x1b[1;36m{}\x1b[0m \x1b[90m({})\x1b[0m\n",
+                    chosen.name, chosen.vendor
+                );
+                Ok(octo_core::model::ModelId(chosen.id.to_string()))
+            }
+        }
+    }
+}
+
+/// Show API key status and allow input/change.
+/// If a key already exists, just show it and continue without prompting.
+fn prompt_api_key(config: &mut octo_core::config::AppConfig) -> Result<()> {
+    let (provider_name, key_env) = match config.provider_type {
+        ProviderType::AtlasCloud => ("Atlas Cloud", "ATLAS_API_KEY"),
+        ProviderType::OpenRouter => ("OpenRouter", "OPENROUTER_API_KEY"),
     };
 
-    let chosen = &MODELS[idx];
-    eprintln!(
-        "\n  \x1b[32m✓\x1b[0m Using \x1b[1;36m{}\x1b[0m \x1b[90m({})\x1b[0m\n",
-        chosen.name, chosen.vendor
-    );
+    let active_keys = config.get_active_api_keys();
 
-    Ok(octo_core::model::ModelId(chosen.id.to_string()))
+    if active_keys.is_empty() {
+        // No key — must input
+        eprintln!(
+            "  \x1b[33mNo API key for {}.\x1b[0m",
+            provider_name,
+        );
+        eprintln!(
+            "  \x1b[90mEnv: {} | Config: octo-code.json\x1b[0m",
+            key_env,
+        );
+        eprint!("\n  \x1b[1mAPI Key:\x1b[0m ");
+        io::stderr().flush().ok();
+
+        let key = read_line_lossy()?.trim().to_string();
+        if key.is_empty() {
+            anyhow::bail!("API key is required. Set {} or enter it here.", key_env);
+        }
+
+        apply_api_key(config, &key);
+        eprintln!("  \x1b[32m\u{2713}\x1b[0m Key saved.\n");
+    } else {
+        // Key exists — show masked version and continue
+        let current = &active_keys[0];
+        let masked = if current.len() > 8 {
+            format!("{}...{}", &current[..4], &current[current.len() - 4..])
+        } else {
+            "****".to_string()
+        };
+
+        eprintln!(
+            "  \x1b[90mAPI Key: \x1b[36m{}\x1b[0m \x1b[90m({})\x1b[0m",
+            masked,
+            provider_name,
+        );
+    }
+
+    Ok(())
+}
+
+/// Apply an API key to the config based on current provider type
+fn apply_api_key(config: &mut octo_core::config::AppConfig, key: &str) {
+    match config.provider_type {
+        ProviderType::OpenRouter => {
+            config.openrouter_api_key = Some(key.to_string());
+        }
+        ProviderType::AtlasCloud => {
+            config.api_key = Some(key.to_string());
+            config.api_keys = vec![key.to_string()];
+        }
+    }
+
+    // Also try to save to config file for persistence
+    if let Err(e) = save_api_key_to_config(config) {
+        eprintln!("  \x1b[33mWarning: Could not save to config: {}\x1b[0m", e);
+    }
+}
+
+/// Save API key to global config file
+fn save_api_key_to_config(config: &octo_core::config::AppConfig) -> Result<()> {
+    let config_dir = if cfg!(target_os = "macos") {
+        dirs::home_dir().map(|h| h.join("Library/Application Support/octo-code"))
+    } else {
+        dirs::config_dir().map(|c| c.join("octo-code"))
+    };
+
+    if let Some(dir) = config_dir {
+        std::fs::create_dir_all(&dir)?;
+        let config_path = dir.join("config.json");
+
+        let mut file_config: serde_json::Value = if config_path.exists() {
+            let content = std::fs::read_to_string(&config_path)?;
+            serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
+        } else {
+            serde_json::json!({})
+        };
+
+        match config.provider_type {
+            ProviderType::OpenRouter => {
+                if let Some(ref key) = config.openrouter_api_key {
+                    file_config["openrouter_api_key"] = serde_json::Value::String(key.clone());
+                    file_config["provider_type"] = serde_json::Value::String("open_router".into());
+                }
+            }
+            ProviderType::AtlasCloud => {
+                if let Some(ref key) = config.api_key {
+                    file_config["api_key"] = serde_json::Value::String(key.clone());
+                    file_config["base_url"] =
+                        serde_json::Value::String("https://api.atlascloud.ai".into());
+                }
+            }
+        }
+
+        std::fs::write(&config_path, serde_json::to_string_pretty(&file_config)?)?;
+    }
+
+    Ok(())
 }
 
 /// Read a line from stdin, handling non-UTF-8 bytes gracefully
@@ -124,7 +357,7 @@ fn read_prompt() -> Result<Option<String>> {
 }
 
 pub async fn run(
-    config: octo_core::config::AppConfig,
+    mut config: octo_core::config::AppConfig,
     db: octo_storage::Database,
     permission_service: std::sync::Arc<dyn octo_core::permission::PermissionService>,
     team_state: std::sync::Arc<std::sync::RwLock<Option<octo_core::team::TeamState>>>,
@@ -133,11 +366,29 @@ pub async fn run(
 ) -> Result<()> {
     eprintln!();
 
+    // Provider selection (skip if preset via --model flag)
+    if preset_model.is_none() {
+        let provider_type = select_provider(config.provider_type)?;
+        config.provider_type = provider_type;
+    }
+
+    // Show current API key status and allow changing
+    prompt_api_key(&mut config)?;
+
     // Model selection (skip if preset via --model flag)
     let model_id = match preset_model {
         Some(id) => id,
-        None => select_model()?,
+        None => select_model(config.provider_type)?,
     };
+
+    // For custom/OpenRouter models not in registry, create a fallback
+    if octo_core::model::get_model(&model_id).is_none() {
+        // Register as a generic model with reasonable defaults
+        eprintln!(
+            "  \x1b[33mNote: Model '{}' not in registry, using default parameters.\x1b[0m\n",
+            model_id
+        );
+    }
 
     // Resolve display name
     let model_display = octo_core::model::get_model(&model_id)
@@ -146,7 +397,7 @@ pub async fn run(
 
     // Banner with model name
     eprintln!(
-        "  \x1b[1;35m🐙 OctoCode Agent\x1b[0m v{} \x1b[90m(\x1b[1;36m{}\x1b[90m)\x1b[0m",
+        "  \x1b[1;35m\u{1F419} OctoCode Agent\x1b[0m v{} \x1b[90m(\x1b[1;36m{}\x1b[90m)\x1b[0m",
         env!("CARGO_PKG_VERSION"),
         model_display,
     );
@@ -226,6 +477,7 @@ pub async fn run(
                 "/help" | "/h" => {
                     eprintln!("\n  \x1b[1mCommands:\x1b[0m");
                     eprintln!("    /model     Show current model");
+                    eprintln!("    /key       Change API key");
                     eprintln!("    /cost      Show token usage & cost");
                     eprintln!("    /sessions  List sessions");
                     eprintln!("    /clear     Clear current session");
@@ -263,7 +515,7 @@ pub async fn run(
                         .await
                         .map_err(|e| anyhow::anyhow!("{e}"))?;
                     for s in sessions {
-                        let marker = if s.id == session.id { " ←" } else { "" };
+                        let marker = if s.id == session.id { " \u{2190}" } else { "" };
                         eprintln!(
                             "    \x1b[90m{}\x1b[0m {}{}  ({} msgs)",
                             &s.id[..8],
@@ -275,12 +527,45 @@ pub async fn run(
                     eprintln!();
                     continue;
                 }
+                "/key" => {
+                    let (provider_name, key_env) = match config.provider_type {
+                        ProviderType::AtlasCloud => ("Atlas Cloud", "ATLAS_API_KEY"),
+                        ProviderType::OpenRouter => ("OpenRouter", "OPENROUTER_API_KEY"),
+                    };
+                    let active_keys = config.get_active_api_keys();
+                    if !active_keys.is_empty() {
+                        let current = &active_keys[0];
+                        let masked = if current.len() > 8 {
+                            format!("{}...{}", &current[..4], &current[current.len() - 4..])
+                        } else {
+                            "****".to_string()
+                        };
+                        eprintln!(
+                            "  \x1b[90mCurrent: \x1b[36m{}\x1b[0m \x1b[90m({})\x1b[0m",
+                            masked, provider_name,
+                        );
+                    }
+                    eprintln!(
+                        "  \x1b[90mEnv: {} | Config: octo-code.json\x1b[0m",
+                        key_env,
+                    );
+                    eprint!("  \x1b[1mNew API Key:\x1b[0m ");
+                    io::stderr().flush().ok();
+                    let input = read_line_lossy()?.trim().to_string();
+                    if input.is_empty() {
+                        eprintln!("  \x1b[33mCancelled.\x1b[0m\n");
+                    } else {
+                        apply_api_key(&mut config, &input);
+                        eprintln!("  \x1b[32m\u{2713}\x1b[0m Key updated. Restart to apply.\n");
+                    }
+                    continue;
+                }
                 "/clear" => {
                     db.messages()
                         .delete_session_messages(&session.id)
                         .await
                         .map_err(|e| anyhow::anyhow!("{e}"))?;
-                    eprintln!("  \x1b[32m✓\x1b[0m Session cleared.\n");
+                    eprintln!("  \x1b[32m\u{2713}\x1b[0m Session cleared.\n");
                     continue;
                 }
                 _ => {
