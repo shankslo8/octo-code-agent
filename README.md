@@ -1,6 +1,8 @@
 # 🐙 OctoCode Agent
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
+[![Crates.io](https://img.shields.io/crates/v/octo-code-agent.svg)](https://crates.io/crates/octo-code-agent)
+[![Docs.rs](https://docs.rs/octo-code-agent/badge.svg)](https://docs.rs/octo-code-agent)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests](https://img.shields.io/badge/tests-37%20passing-brightgreen.svg)]()
 
@@ -35,6 +37,7 @@
 - [API 제공자](#-api-제공자)
 - [설정](#-설정)
 - [테스트](#-테스트)
+- [배포 및 패키징](#-배포-및-패키징)
 - [문서](#-문서)
 - [라이선스](#-라이선스)
 
@@ -70,22 +73,86 @@
 - [Rust](https://rustup.rs/) 1.75 이상
 - Atlas Cloud 또는 OpenRouter API 키
 
-### 소스에서 설치
+---
+
+### 방법 1: crates.io에서 설치 (권장) ⭐
+
+Rust 생태계의 공식 패키지 저장소 [crates.io](https://crates.io/crates/octo-code-agent)에서 직접 설치합니다.
+
+```bash
+# 설치 (전 세계 어디서든)
+cargo install octo-code-agent
+
+# 또는 특정 버전 설치
+cargo install octo-code-agent --version 0.1.0
+
+# 업데이트
+cargo install octo-code-agent --force
+```
+
+**설치 위치:**
+- 바이너리: `~/.cargo/bin/octo-code`
+- PATH에 `~/.cargo/bin`이 포함되어 있어야 함 (cargo 설치 시 자동 추가)
+
+**확인:**
+```bash
+octo-code --version
+```
+
+---
+
+### 방법 2: 소스에서 설치
+
+최신 개발 버전이나 커스텀 수정이 필요한 경우:
 
 ```bash
 # 저장소 클론
 git clone https://github.com/johunsang/octo-code-agent
 cd octo-code-agent
 
-# 빌드 및 설치
+# 설치
 cargo install --path .
 
-# 또는 릴리스 빌드
+# 또는 릴리스 빌드만 (설치 없이)
 cargo build --release
 # 바이너리: target/release/octo-code
 ```
 
-### macOS (Homebrew - 예정)
+---
+
+### 방법 3: 바이너리 직접 다운로드
+
+GitHub [Releases](https://github.com/johunsang/octo-code-agent/releases)에서 미리 빌드된 바이너리를 다운로드:
+
+```bash
+# macOS (Apple Silicon)
+curl -L -o octo-code https://github.com/johunsang/octo-code-agent/releases/latest/download/octo-code-macos-arm64
+chmod +x octo-code
+sudo mv octo-code /usr/local/bin/
+
+# macOS (Intel)
+curl -L -o octo-code https://github.com/johunsang/octo-code-agent/releases/latest/download/octo-code-macos-x86_64
+chmod +x octo-code
+sudo mv octo-code /usr/local/bin/
+
+# Linux
+curl -L -o octo-code https://github.com/johunsang/octo-code-agent/releases/latest/download/octo-code-linux-x86_64
+chmod +x octo-code
+sudo mv octo-code /usr/local/bin/
+```
+
+---
+
+### 방법 4: Docker
+
+```bash
+docker pull johunsang/octo-code:latest
+docker run -it --rm -e ATLAS_API_KEY=$ATLAS_API_KEY johunsang/octo-code:latest
+```
+
+---
+
+### 방법 5: macOS Homebrew (예정)
 
 ```bash
 brew tap johunsang/octo-code
@@ -493,6 +560,68 @@ cargo test storage::
 - [사용법 (한국어)](docs/usage-ko.md)
 - [사용법 (English)](docs/usage-en.md)
 - [기여 가이드](CONTRIBUTING.md)
+
+---
+
+## 🏭 배포 및 패키징
+
+### 배포 채널
+
+| 채널 | 명령어 | 사용처 |
+|------|--------|--------|
+| **crates.io** | `cargo install octo-code-agent` | Rust 사용자 (권장) |
+| **GitHub Releases** | 바이너리 다운로드 | 일반 사용자 |
+| **Docker Hub** | `docker pull johunsang/octo-code` | 컨테이너 환경 |
+| **Homebrew** | `brew install octo-code` | macOS 사용자 (예정) |
+
+### crates.io 배포
+
+```bash
+# 패키지 검증
+cargo publish --dry-run
+
+# 배포
+cargo publish
+
+# 확인
+open https://crates.io/crates/octo-code-agent
+```
+
+**패키지 정보:**
+- 이름: `octo-code-agent`
+- 버전: `0.1.0`
+- 바이너리: `octo-code`
+- 라이브러리: `octo_code_agent`
+
+### 프로젝트 구조 개선 (v0.1.0)
+
+**이전 (Workspace):**
+```
+crates/
+├── octo-core/          # 핵심 타입
+├── octo-providers/     # API 제공자
+├── octo-tools/         # 도구 구현
+├── octo-agent/         # 에이전트 루프
+├── octo-storage/       # SQLite 저장소
+└── octo-cli/           # CLI 바이너리
+```
+
+**현재 (단일 Crate):**
+```
+src/
+├── core/               # 통합된 핵심 모듈
+├── providers/          # API 제공자
+├── tools/              # 17개 도구
+├── agent/              # 에이전트 루프
+├── storage/            # SQLite 저장소
+└── cli/                # CLI 인터페이스
+```
+
+**개선 사항:**
+- ✅ 더 간단한 의존성 관리
+- ✅ 더 빠른 컴파일
+- ✅ 더 쉬운 배포 (`cargo install` 한 번으로 완료)
+- ✅ 더 작은 바이너리 크기
 
 ---
 
