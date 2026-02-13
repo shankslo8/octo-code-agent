@@ -2,12 +2,21 @@
 name = "octo-code-agent"
 version = "0.1.0"
 edition = "2021"
+authors = ["johunsang <johunsang@gmail.com>"]
+description = "AI coding assistant with parallel multi-agent coordination"
 license = "MIT"
 repository = "https://github.com/johunsang/octo-code-agent"
 homepage = "https://github.com/johunsang/octo-code-agent"
 keywords = ["ai", "coding-assistant", "agent", "cli", "llm"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
+include = [
+    "src/**/*",
+    "migrations/**/*",
+    "Cargo.toml",
+    "README.md",
+    "LICENSE",
+]
 
 [[bin]]
 name = "octo-code"
