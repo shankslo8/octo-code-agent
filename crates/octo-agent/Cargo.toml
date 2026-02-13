@@ -1,0 +1,16 @@
+[package]
+name = "octo-agent"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+octo-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+chrono = { workspace = true }

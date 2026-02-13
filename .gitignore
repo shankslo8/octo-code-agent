@@ -1,0 +1,38 @@
+# Rust
+/target
+**/*.rs.bk
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+._*
+
+# Environment variables
+.env
+.envrc
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Project-specific
+.octo-code/
+octo-code.json
+result
+/dist/
+
+# Web (if applicable)
+/web/node_modules/
+/web/.next/
+
+# Build artifacts
+**/debug/
+**/release/
