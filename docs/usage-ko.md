@@ -8,26 +8,21 @@
 
 ### 사전 요구사항
 
-- [Rust](https://rustup.rs/) 1.70 이상
-- Atlas Cloud API 키
+- [Rust](https://rustup.rs/) 1.75 이상
+- Atlas Cloud 또는 OpenRouter API 키
 
 ### 소스에서 설치
 
 ```bash
 # 저장소 클론
-git clone <repository-url>
+git clone https://github.com/johunsang/octo-code-agent
 cd octo-code-agent
 
 # 설치
+cargo install --path .
+
+# 또는 릴리스 빌드
 make install
-# 또는
-cargo install --path crates/octo-cli
-```
-
-### 자동 설치 스크립트
-
-```bash
-curl -fsSL https://example.com/install.sh | sh
 ```
 
 ---
@@ -40,23 +35,67 @@ curl -fsSL https://example.com/install.sh | sh
 
 ```bash
 $ octo-code
-🔑 Atlas Cloud API 키를 입력하세요: sk-...
-✅ 설정이 ~/.config/octo-code/config.toml에 저장되었습니다.
+🔑 Atlas Cloud API 키를 입력하세요 (입력 없이 Enter 시 OpenRouter): sk-...
+✅ 설정이 저장되었습니다.
 ```
 
 ### 2. 설정 파일 직접 작성
 
-`~/.config/octo-code/config.toml` 파일을 직접 작성할 수도 있습니다:
+`config.json` 파일을 직접 작성할 수도 있습니다:
 
-```toml
-[atlas]
-api_key = "sk-your-api-key-here"
+**macOS:**
+```bash
+mkdir -p ~/Library/Application\ Support/octo-code
+cat > ~/Library/Application\ Support/octo-code/config.json << 'EOF'
+{
+  "api_key": "sk-your-atlas-api-key",
+  "api_keys": ["sk-your-atlas-api-key"],
+  "openrouter_api_key": "sk-your-openrouter-key",
+  "provider_type": "atlas_cloud",
+  "base_url": "https://api.atlascloud.ai",
+  "agent": {
+    "coder_model": "zai-org/glm-5",
+    "fast_model": "zai-org/glm-4.7",
+    "reasoning_model": "qwen/qwen3-max-2026-01-23",
+    "long_context_model": "moonshotai/kimi-k2.5",
+    "max_tokens": 16384
+  },
+  "shell": {
+    "path": "/bin/bash",
+    "args": []
+  },
+  "context_paths": [
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    "octo-code.md"
+  ],
+  "debug": false
+}
+EOF
+```
 
-# 선택사항: 기본 모델 설정
-[models]
-default = "deepseek-ai/deepseek-v3.2-speciale"
-coder = "zai-org/glm-5"
-reasoning = "qwen/qwen3-max-2026-01-23"
+**Linux:**
+```bash
+mkdir -p ~/.config/octo-code
+cat > ~/.config/octo-code/config.json << 'EOF'
+{
+  "api_key": "sk-your-api-key",
+  "provider_type": "atlas_cloud"
+}
+EOF
+```
+
+### 3. 환경변수 설정
+
+```bash
+# Atlas Cloud 사용
+export ATLAS_API_KEY="sk-your-api-key"
+
+# 또는 OpenRouter 사용
+export OPENROUTER_API_KEY="sk-your-api-key"
+
+# 여러 키 로드밸런싱
+export ATLAS_API_KEYS="key1,key2,key3"
 ```
 
 ---
@@ -70,9 +109,18 @@ reasoning = "qwen/qwen3-max-2026-01-23"
 ```bash
 $ octo-code
 🐙 octo-code v0.1.0
-💬 질문을 입력하세요 (quit: 종료, /help: 도움말)
 
-> 이 프로젝트의 구조를 분석해줘
+사용할 모델을 선택하세요:
+1. GLM-5 (zai-org/glm-5) - $0.80/$2.56 per 1M tokens [기본]
+2. GLM-4.7 (zai-org/glm-4.7) - $0.52/$1.75 per 1M tokens
+3. DeepSeek V3.2 (deepseek-ai/deepseek-v3.2-speciale) - $0.26/$0.38 per 1M tokens
+4. Qwen3 Max (qwen/qwen3-max-2026-01-23) - $1.20/$6.00 per 1M tokens
+5. Qwen3 Coder (Qwen/Qwen3-Coder) - $0.78/$3.90 per 1M tokens
+6. Kimi K2.5 (moonshotai/kimi-k2.5) - $0.50/$2.50 per 1M tokens
+
+선택 (1-6, 기본: 1): 1
+
+octo> 이 프로젝트의 구조를 분석해줘
 🔍 파일을 탐색 중입니다...
 ...
 ```
@@ -110,10 +158,15 @@ USAGE:
 
 OPTIONS:
     -p, --prompt <PROMPT>     한 번 실행할 프롬프트
-    --repl                    REPL 모드로 실행
-    --tui                     TUI 모드로 실행
-    --session <SESSION_ID>    이전 세션 재개
-    --model <MODEL_ID>        사용할 모델 지정
+    -c, --cwd <PATH>          작업 디렉토리 지정
+    -f, --output-format <FMT> 출력 형식 (text, json) [기본: text]
+    -q, --quiet               진행 표시기 숨김
+        --repl                REPL 모드로 실행
+        --tui                 TUI 모드로 실행
+        --session <SESSION_ID> 이전 세션 재개
+    -m, --model <MODEL_ID>    사용할 모델 지정
+        --provider <PROVIDER> API 제공자 (atlas, openrouter)
+    -d, --debug               디버그 로그 활성화
     -h, --help                도움말 표시
     -V, --version             버전 표시
 ```
@@ -126,12 +179,14 @@ OPTIONS:
 
 | 명령어 | 설명 |
 |--------|------|
-| `/quit`, `/q` | 종료 |
+| `/quit`, `/q`, `exit` | 종료 |
 | `/help`, `/h` | 도움말 표시 |
 | `/clear` | 화면 지우기 |
 | `/sessions` | 저장된 세션 목록 |
 | `/session <ID>` | 특정 세션 불러오기 |
 | `/new` | 새 세션 시작 |
+| `/model` | 현재 모델 확인 |
+| `/cost` | 토큰 사용량 및 비용 확인 |
 
 ---
 
@@ -206,13 +261,21 @@ Allow? [y]es / [n]o / [a]lways: y
 | `ls` | ❌ 없음 | 디렉토리 목록 |
 | `glob` | ❌ 없음 | 파일 패턴 검색 |
 | `grep` | ❌ 없음 | 코드 검색 |
+| `coderlm` | ❌ 없음 | 코드 인텔리전스 |
+| `task_get` | ❌ 없음 | 작업 조회 |
+| `task_list` | ❌ 없음 | 작업 목록 |
+| `check_inbox` | ❌ 없음 | 메시지 수신 |
 | `write` | ✅ 필요 | 파일 생성/쓰기 |
 | `edit` | ✅ 필요 | 파일 수정 |
 | `bash` | ✅ 위험 명령 | 셸 명령 실행 |
 | `team_create` | ✅ 필요 | 팀 생성 |
+| `team_delete` | ✅ 필요 | 팀 삭제 |
 | `spawn_agent` | ✅ 필요 | 에이전트 생성 |
+| `task_create` | ✅ 필요 | 작업 생성 |
+| `task_update` | ✅ 필요 | 작업 업데이트 |
+| `send_message` | ✅ 필요 | 메시지 전송 |
 
-**자동 승인되는 명령**: `ls`, `pwd`, `echo`, `cat`, `git status`, `git log` 등 안전한 명령
+**자동 승인되는 명령**: `ls`, `pwd`, `echo`, `cat`, `git status`, `git log`, `git diff` 등 안전한 명령
 
 **확인 메시지 예시**:
 ```
@@ -227,6 +290,10 @@ Allow? [y]es / [n]o / [a]lways:
 ### 세션 저장
 
 모든 대화는 자동으로 SQLite 데이터베이스에 저장됩니다.
+
+**데이터베이스 위치:**
+- macOS: `~/Library/Application Support/octo-code/octo-code.db`
+- Linux: `~/.local/share/octo-code/octo-code.db`
 
 ### 세션 목록 조회
 
@@ -261,28 +328,35 @@ octo-code --session sess_abc123
 
 ### 팀 생성
 
-```
-> @team octo-code 기능-x-팀 "새로운 기능 구현"
-```
-
-### 작업 할당
+AI가 자동으로 `team_create` 도구를 사용합니다:
 
 ```
-> @task octo-code 기능-x-팀 "데이터베이스 스키마 설계"
-> @task octo-code 기능-x-팀 "API 엔드포인트 구현"
-> @task octo-code 기능-x-팀 "단위 테스트 작성"
+> Next.js 랜딩페이지를 만드는 팀을 구성해줘
 ```
 
-### 작업 상태 확인
+```
+[team_create: landing-page]
+[spawn_agent: layout]    ← 레이아웃 + 네비게이션
+[spawn_agent: hero]      ← 히어로 섹션 + CTA
+[spawn_agent: features]  ← 피처 카드 + 푸터
+```
+
+### 태스크 관리
+
+에이전트들은 파일 기반 태스크 보드로 조율됩니다:
 
 ```
-> @list octo-code 기능-x-팀
+~/.octo-code/
+├── teams/{team-name}/
+│   ├── config.json         # 팀 설정
+│   └── inboxes/            # 에이전트별 메시지함
+└── tasks/{team-name}/      # 태스크 보드
 ```
 
 ### 팀 삭제
 
 ```
-> @delete octo-code 기능-x-팀
+> landing-page 팀을 삭제해줘
 ```
 
 ---
@@ -326,23 +400,39 @@ $ octo-code -p "API 문서를 docs/api.md에 작성해줘"
 $ octo-code -p "중복 코드를 제거하고 리팩토링해줘"
 ```
 
+### 예시 6: 특정 모델 사용
+
+```bash
+$ octo-code -m "deepseek-ai/deepseek-v3.2-speciale" -p "코드를 최적화해줘"
+```
+
+### 예시 7: OpenRouter 사용
+
+```bash
+$ export OPENROUTER_API_KEY="sk-..."
+$ octo-code --provider openrouter -p "코드 리뷰해줘"
+```
+
 ---
 
 ## 💰 비용 안내
 
-Atlas Cloud를 통해 과금됩니다.
+API 사용량에 따라 비용이 발생합니다.
 
-| 모델 | 입력 $/1M 토큰 | 출력 $/1M 토큰 |
-|------|---------------|----------------|
-| `deepseek-ai/deepseek-v3.2-speciale` | $0.27 | $0.41 |
-| `zai-org/glm-5` | $0.80 | $2.56 |
-| `moonshotai/kimi-k2.5` | $0.50 | $2.50 |
-| `qwen/qwen3-max-2026-01-23` | $1.20 | $6.00 |
+| 모델 | 입력 $/1M 토큰 | 출력 $/1M 토큰 | 컨텍스트 |
+|------|---------------|----------------|---------|
+| `zai-org/glm-5` | $0.80 | $2.56 | 202K |
+| `zai-org/glm-4.7` | $0.52 | $1.75 | 202K |
+| `deepseek-ai/deepseek-v3.2-speciale` | $0.26 | $0.38 | 163K |
+| `qwen/qwen3-max-2026-01-23` | $1.20 | $6.00 | 252K |
+| `Qwen/Qwen3-Coder` | $0.78 | $3.90 | 262K |
+| `moonshotai/kimi-k2.5` | $0.50 | $2.50 | 262K |
 
 **비용 절약 팁**:
 - `-p` 모드는 세션 없이 실행되어 히스토리 비용 감소
-- 작은 작업에는 `Fast` 모델 사용
+- 작은 작업에는 `GLM-4.7`이나 `DeepSeek V3.2` 사용
 - 에이전트 루프는 반복할수록 입력 토큰이 누적됨
+- `--quiet` 옵션으로 토큰 사용량 실시간 확인 가능
 
 ---
 
@@ -351,10 +441,18 @@ Atlas Cloud를 통해 과금됩니다.
 ### API 키 오류
 
 ```
-Error: Atlas API key not found
+Error: No API key found
 ```
 
-해결: `~/.config/octo-code/config.toml` 파일을 확인하세요.
+해결:
+```bash
+# 환경변수 설정 확인
+export ATLAS_API_KEY="sk-your-key"
+
+# 또는 설정 파일 확인
+ls ~/Library/Application\ Support/octo-code/config.json  # macOS
+ls ~/.config/octo-code/config.json                        # Linux
+```
 
 ### 빌드 실패
 
@@ -363,14 +461,27 @@ Error: Atlas API key not found
 cargo update
 
 # 깨끗한 빌드
-make clean && make build
+cargo clean && cargo build --release
 ```
 
 ### 데이터베이스 오류
 
 ```bash
 # 데이터베이스 재초기화
-rm ~/.local/share/octo-code/octo-code.db
+rm ~/Library/Application\ Support/octo-code/octo-code.db  # macOS
+rm ~/.local/share/octo-code/octo-code.db                   # Linux
+```
+
+### Rate Limit 오류
+
+```
+Rate limited. Waiting 5s... (attempt 1/3)
+```
+
+이 메시지가 표시되면 자동으로 재시도합니다. 여러 API 키를 설정하여 로드밸런싱할 수 있습니다:
+
+```bash
+export ATLAS_API_KEYS="key1,key2,key3"
 ```
 
 ---
@@ -379,7 +490,7 @@ rm ~/.local/share/octo-code/octo-code.db
 
 - [아키텍처 문서 (한국어)](architecture-ko.md)
 - [아키텍처 문서 (English)](architecture-en.md)
-- [GitHub Issues](https://github.com/your-repo/octo-code-agent/issues)
+- [GitHub Issues](https://github.com/johunsang/octo-code-agent/issues)
 
 ---
 

@@ -4,8 +4,8 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      octo-cli (바이너리)                     │
-│  main.rs → clap 파싱 → build_app() → repl / noninteractive │
+│                    octo-code (바이너리)                      │
+│  main.rs → clap 파싱 → build_app() → repl / interactive    │
 └──────────┬──────────────────────────┬───────────────────────┘
            │                          │
     ┌──────▼──────┐          ┌────────▼────────┐
@@ -16,77 +16,90 @@
            └──────────┬───────────────┘
                       │
               ┌───────▼────────┐
-              │   octo-agent   │ ← 핵심 오케스트레이터
-              │   Agent.run()  │
+              │     agent      │ ← 핵심 오케스트레이터
+              │  Agent.run()   │
               └───────┬────────┘
                       │
          ┌────────────┼────────────┐
          │            │            │
   ┌──────▼──────┐ ┌───▼───┐ ┌─────▼─────┐
-  │  Provider   │ │ Tools │ │ Permission│
-  │(Atlas Cloud)│ │ (7개) │ │  Service  │
-  └─────────────┘ └───────┘ └───────────┘
-         │
-  ┌──────▼──────┐
-  │  octo-core  │ ← 공유 타입 정의
+  │   Provider  │ │ Tools │ │ Permission│
+  │(Atlas Cloud)│ │ (17개)│ │  Service  │
+  │(OpenRouter) │ └───────┘ └───────────┘
   └─────────────┘
          │
+  ┌──────▼──────┐
+  │    core     │ ← 공유 타입 정의
+  └──────┬──────┘
+         │
   ┌──────▼───────┐
-  │ octo-storage │ ← SQLite 영속성
+  │   storage    │ ← SQLite 영속성
   └──────────────┘
 ```
 
-### Cargo Workspace 구조 (6개 crate)
+### 단일 Crate 구조
 
-| crate | 역할 | 의존 대상 |
-|-------|------|----------|
-| `octo-core` | 타입, trait, 에러, 설정 | 없음 (최하위) |
-| `octo-providers` | Atlas Cloud API 통신 | octo-core |
-| `octo-tools` | 도구 실행 (bash, edit 등) | octo-core |
-| `octo-agent` | 에이전트 루프 조율 | octo-core |
-| `octo-storage` | SQLite DB | octo-core |
-| `octo-cli` | 바이너리 진입점 | 전부 |
+| 모듈 | 경로 | 역할 | 의존 대상 |
+|------|------|------|----------|
+| `core` | `src/core/` | 타입, trait, 에러, 설정 | 없음 (최하위) |
+| `providers` | `src/providers/` | Atlas Cloud/OpenRouter API 통신 | core |
+| `tools` | `src/tools/` | 도구 실행 (bash, edit 등 17개) | core |
+| `agent` | `src/agent/` | 에이전트 루프 조율 | core |
+| `storage` | `src/storage/` | SQLite DB | core |
+| `cli` | `src/cli/` | 바이너리 진입점 | 전부 |
 
-의존성 방향은 **단방향**: core ← providers/tools/agent/storage ← cli.
-순환 의존이 없으므로 각 crate를 독립적으로 테스트 가능.
+의존성 방향은 **단방향**: storage → core → providers/tools/agent → cli.
+순환 의존이 없으므로 각 모듈을 독립적으로 테스트 가능.
 
 ---
 
-## 2. Atlas Cloud 통합 API
+## 2. LLM 제공자 통합
 
-### 2.1 단일 키, 단일 엔드포인트
+### 2.1 이중 제공자 지원
 
-모든 LLM 호출은 **Atlas Cloud** 게이트웨이를 통해 라우팅됨:
+**Atlas Cloud** (기본) 및 **OpenRouter**를 동시에 지원합니다:
 
 ```
-엔드포인트: https://api.atlascloud.ai/api/v1/chat/completions
-인증: Authorization: Bearer <ATLAS_API_KEY>
+Atlas Cloud:  https://api.atlascloud.ai/api/v1/chat/completions
+OpenRouter:   https://openrouter.ai/api/v1/chat/completions
+
+인증: Authorization: Bearer <API_KEY>
 형식: OpenAI ChatCompletion 호환
 ```
 
-**장점**: API 키 하나로 모든 모델 사용 가능. 별도 Provider 구현 불필요.
+**장점**: 
+- API 키 하나로 Atlas Cloud의 모든 모델 사용 가능
+- OpenRouter 키로도 동일한 모델 사용 가능
+- `--provider` 플래그로 런타임 전환
 
-### 2.2 등록 모델 (5개)
+### 2.2 등록 모델 (6개)
 
-| 모델 ID | 벤더 | 특징 | 입력 $/M | 출력 $/M |
-|---------|------|------|---------|---------|
-| `zai-org/glm-5` | Zhipu AI | 에이전트 최적화, 멀티스텝 추론 | $0.80 | $2.56 |
-| `moonshotai/kimi-k2.5` | Moonshot AI | 초장문 컨텍스트, 멀티모달 | $0.50 | $2.50 |
-| `qwen/qwen3-max-2026-01-23` | Alibaba | 플래그십, 코드 생성 | $1.20 | $6.00 |
-| `minimaxai/minimax-m2.1` | MiniMax | 230B MoE, SWE-bench 74% | $0.30 | $0.30 |
-| `deepseek-ai/deepseek-v3.2-speciale` | DeepSeek | 685B MoE, 최저가, IOI 금메달 | $0.27 | $0.41 |
+| 모델 ID | 벤더 | 특징 | 입력 $/M | 출력 $/M | 컨텍스트 |
+|---------|------|------|---------|---------|---------|
+| `zai-org/glm-5` | Zhipu AI | 에이전트 최적화, 멀티스텝 추론 | $0.80 | $2.56 | 202K |
+| `zai-org/glm-4.7` | Zhipu AI | 경제적, 빠른 응답 | $0.52 | $1.75 | 202K |
+| `deepseek-ai/deepseek-v3.2-speciale` | DeepSeek | 685B MoE, 최저가 | $0.26 | $0.38 | 163K |
+| `qwen/qwen3-max-2026-01-23` | Alibaba | 플래그십, 강력한 추론 | $1.20 | $6.00 | 252K |
+| `Qwen/Qwen3-Coder` | Alibaba | 480B MoE, 코드 특화 | $0.78 | $3.90 | 262K |
+| `moonshotai/kimi-k2.5` | Moonshot AI | 초장문 컨텍스트, 멀티모달 | $0.50 | $2.50 | 262K |
 
-**기본 모델**: `deepseek-ai/deepseek-v3.2-speciale` (가장 저렴하고 성능 우수)
+**기본 모델**: `zai-org/glm-5` (에이전트 최적화)
+
+**경제적 모델**: `deepseek-ai/deepseek-v3.2-speciale` (최저가)
 
 ### 2.3 설정
 
-```
-환경변수: ATLAS_API_KEY=your-key-here
-또는 config 파일:
-{
-  "api_key": "your-key-here",
-  "base_url": "https://api.atlascloud.ai/api"
-}
+```bash
+# 환경변수
+export ATLAS_API_KEY="your-key-here"
+export OPENROUTER_API_KEY="your-key-here"
+
+# 또는 첫 실행 시 자동 설정
+octo-code
+
+# 설정 파일 (JSON 형식)
+# macOS: ~/Library/Application Support/octo-code/config.json
+# Linux: ~/.config/octo-code/config.json
 ```
 
 키 감지 우선순위: `ATLAS_API_KEY` → `ATLAS_CLOUD_API_KEY` → `OPENAI_API_KEY` → `ANTHROPIC_API_KEY`
@@ -133,12 +146,14 @@ Agent.run(session_id, messages, user_input)
   │    └─ loop {                  ← ★ 핵심 루프
   │         │
   │         ├─ provider.stream_response(messages, system_prompt, tools)
-  │         │   → HTTP POST to Atlas Cloud (SSE 스트리밍)
+  │         │   → HTTP POST (SSE 스트리밍)
   │         │
   │         ├─ process_stream() → (assistant_msg, finish_reason, usage)
   │         │   → 스트리밍 이벤트를 Message 객체로 조립
   │         │
   │         ├─ messages.push(assistant_msg)
+  │         │
+  │         ├─ 컨텍스트 윈도우 관리 (오래된 메시지 제거)
   │         │
   │         └─ match finish_reason {
   │              EndTurn → return Ok(())     ← 루프 탈출
@@ -165,6 +180,21 @@ Agent.run(session_id, messages, user_input)
 
 **ToolUse일 때만 루프가 계속된다** - 이것이 에이전트가 "자율적으로 행동"하는 원리.
 
+### 3.4 Rate Limit 대응
+
+```rust
+// 3회 재시도 + 지수 백오프
+for attempt in 0..3 {
+    match provider.stream_response(...).await {
+        Ok(stream) => break,
+        Err(RateLimited { retry_after_ms }) => {
+            let wait = retry_after_ms * (attempt + 1);
+            sleep(wait).await;
+        }
+    }
+}
+```
+
 ---
 
 ## 4. 스트리밍 아키텍처
@@ -177,14 +207,14 @@ LLM 응답은 수 초~수십 초 소요. 전체 응답을 기다리면 UX가 나
 ### 4.2 3단계 이벤트 변환 파이프라인
 
 ```
-[Atlas Cloud]           [Provider]              [Agent]              [CLI]
+[LLM API]               [Provider]              [Agent]              [CLI]
  SSE bytes  ──parse──→  ProviderEvent  ──process──→  AgentEvent  ──render──→  터미널
- (HTTP)                  (내부 추상화)               (UI용 이벤트)          (stdout)
+ (HTTP)                  (내부 추상화)               (UI용 이벤트)           (stdout)
 ```
 
 **1단계: Provider (SSE → ProviderEvent)**
 ```rust
-// openai.rs - SSE 바이트를 파싱하여 추상 이벤트로 변환
+// providers/openai.rs - SSE 바이트를 파싱하여 추상 이벤트로 변환
 match delta {
     content → yield ProviderEvent::ContentDelta { text }
     tool_calls → yield ProviderEvent::ToolUseStart { id, name }
@@ -194,7 +224,7 @@ match delta {
 
 **2단계: Agent (ProviderEvent → AgentEvent)**
 ```rust
-// agent.rs - process_stream()
+// agent/agent.rs - process_stream()
 match event {
     ContentDelta { text } → {
         current_text += text;             // 메시지에 누적
@@ -208,7 +238,7 @@ match event {
 
 **3단계: CLI (AgentEvent → 터미널 출력)**
 ```rust
-// output.rs
+// cli/output.rs
 match event {
     ContentDelta { text }     → print!("{text}")     // 실시간 타자기
     ToolCallStart { name }    → eprintln!("[tool: {name}]")
@@ -245,23 +275,35 @@ LLM은 **텍스트만 출력**할 수 있음. 파일을 읽거나, 명령을 실
 ### 5.2 도구 인터페이스
 
 ```rust
-trait Tool: Send + Sync {
+#[async_trait]
+pub trait Tool: Send + Sync {
     fn definition(&self) -> ToolDefinition;    // JSON Schema (LLM에 전달)
-    async fn run(&self, call, ctx) -> Result<ToolResult, ToolError>;
+    async fn run(&self, call: &ToolCall, ctx: &ToolContext) 
+        -> Result<ToolResult, ToolError>;
 }
 ```
 
-### 5.3 현재 도구 목록
+### 5.3 현재 도구 목록 (17개)
 
-| 도구 | 역할 | 권한 필요 |
-|------|------|----------|
-| `bash` | 셸 명령 실행 | 안전한 명령 외 필요 |
-| `view` | 파일 읽기 | 불필요 |
-| `write` | 파일 생성/덮어쓰기 | 필요 |
-| `edit` | 문자열 치환으로 파일 수정 | 필요 |
-| `ls` | 디렉토리 목록 | 불필요 |
-| `glob` | 패턴으로 파일 검색 | 불필요 |
-| `grep` | 정규식으로 코드 검색 | 불필요 |
+| 카테고리 | 도구 | 역할 | 권한 필요 |
+|----------|------|------|----------|
+| 파일 | `view` | 파일 읽기 | ❌ 없음 |
+| | `write` | 파일 생성/덮어쓰기 | ✅ 필요 |
+| | `edit` | 문자열 치환으로 파일 수정 | ✅ 필요 |
+| 탐색 | `ls` | 디렉토리 목록 | ❌ 없음 |
+| | `glob` | 패턴으로 파일 검색 | ❌ 없음 |
+| | `grep` | 정규식으로 코드 검색 | ❌ 없음 |
+| 실행 | `bash` | 셸 명령 실행 | ✅ 위험 명령 |
+| 코드 | `coderlm` | CodeRLM 코드 인텔리전스 | ❌ 없음 |
+| 팀 | `team_create` | 팀 생성 | ✅ 필요 |
+| | `team_delete` | 팀 삭제 | ✅ 필요 |
+| | `spawn_agent` | 에이전트 생성 | ✅ 필요 |
+| 태스크 | `task_create` | 작업 생성 | ✅ 필요 |
+| | `task_get` | 작업 조회 | ❌ 없음 |
+| | `task_update` | 작업 업데이트 | ✅ 필요 |
+| | `task_list` | 작업 목록 | ❌ 없음 |
+| 메시지 | `send_message` | 메시지 전송 | ✅ 필요 |
+| | `check_inbox` | 메시지 수신 | ❌ 없음 |
 
 ---
 
@@ -270,13 +312,14 @@ trait Tool: Send + Sync {
 ### 6.1 ContentPart (다형성 메시지)
 
 ```rust
-enum ContentPart {
-    Text { text }
-    Reasoning { text }
-    ToolCall { id, name, input }
-    ToolResult { tool_call_id, content, is_error }
-    Finish { reason, timestamp }
-    Image { data, media_type }
+pub enum ContentPart {
+    Text { text: String }
+    Reasoning { text: String }
+    ToolCall { id: String, name: String, input: String }
+    ToolResult { tool_call_id: String, content: String, is_error: bool }
+    Finish { reason: FinishReason, timestamp: DateTime<Utc> }
+    Image { data: String, media_type: String }
+    ImageUrl { url: String }
 }
 ```
 
@@ -301,18 +344,68 @@ LLM이 자율적으로 도구를 호출하되, **위험한 작업은 사용자 �
 ## 8. 저장소 (SQLite)
 
 ```sql
-sessions (id, title, message_count, tokens, cost, timestamps)
-messages (id, session_id, role, parts_json, model_id, usage_json, timestamps)
+-- 세션 테이블
+sessions (
+    id, title, message_count, 
+    prompt_tokens, completion_tokens, cost,
+    created_at, updated_at
+)
+
+-- 메시지 테이블
+messages (
+    id, session_id, role, parts_json, 
+    model_id, usage_json, created_at, updated_at
+)
+
+-- 파일 버전 관리
+files (
+    id, session_id, path, content, 
+    version, created_at, updated_at
+)
 ```
 
 WAL 모드, 임베디드, 서버 불필요.
 
 ---
 
-## 9. 전체 시퀀스 다이어그램
+## 9. 팀 협업 시스템 (병렬 멀티 에이전트)
+
+### 9.1 개념
+
+복잡한 작업을 자동 분해하여 여러 에이전트가 병렬로 처리:
 
 ```
-User          CLI           Agent         Provider      Atlas Cloud     Tool
+사용자: "Next.js 랜딩페이지 만들어줘"
+    ↓
+리드 에이전트: 작업 분해
+    ├─ spawn_agent: layout (레이아웃 + 네비게이션)
+    ├─ spawn_agent: hero (히어로 섹션 + CTA)
+    └─ spawn_agent: features (피처 카드 + 푸터)
+    ↓
+에이전트들이 병렬로 작업 → 파일 기반 태스크 보드로 조율
+    ↓
+리드 에이전트: 결과 통합 및 검증
+```
+
+### 9.2 파일 기반 조율
+
+```
+~/.octo-code/
+├── teams/{team-name}/
+│   ├── config.json         # 팀 설정, 멤버 목록
+│   └── inboxes/
+│       └── {agent}.json    # 에이전트별 메시지 큐
+└── tasks/{team-name}/
+    ├── counter.json        # 태스크 ID 카운터
+    └── {id}.json           # 개별 태스크
+```
+
+---
+
+## 10. 전체 시퀀스 다이어그램
+
+```
+User          CLI           Agent         Provider      LLM API       Tool
  │               │               │              │              │            │
  │──"버그 고쳐"──→│               │              │              │            │
  │               │──run()───────→│              │              │            │
@@ -327,7 +420,7 @@ User          CLI           Agent         Provider      Atlas Cloud     Tool
  │               │               │←─────────────────────────────result─────│
  │               │               │──stream()───→│──HTTP POST──→│            │
  │               │               │              │←─SSE:text────│            │
- │               │←─ContentDelta─│←─ContentDelta│←─SSE:stop────│            │
+ │               │               │              │←─SSE:stop────│            │
  │               │               │  [finish = EndTurn]         │            │
  │               │←─Complete─────│              │              │            │
  │←─[tokens:...]─│               │              │              │            │
@@ -335,7 +428,7 @@ User          CLI           Agent         Provider      Atlas Cloud     Tool
 
 ---
 
-## 10. 비용 계산
+## 11. 비용 계산
 
 ```
 비용 = (입력 토큰 / 1M) × 입력 단가 + (출력 토큰 / 1M) × 출력 단가
@@ -343,10 +436,10 @@ User          CLI           Agent         Provider      Atlas Cloud     Tool
 
 DeepSeek V3.2 Speciale 예시:
 ```
-입력 10,000 토큰 × $0.27/M = $0.0027
-출력  2,000 토큰 × $0.41/M = $0.00082
-합계                        = $0.00352
+입력 10,000 토큰 × $0.26/M = $0.0026
+출력  2,000 토큰 × $0.38/M = $0.00076
+합계                         = $0.00336
 ```
 
 **에이전트 루프의 비용 특성**: 매 루프마다 전체 대화 이력을 재전송 → 입력 토큰이 누적됨.
-도구를 많이 사용할수록 비용이 기하급수적으로 증가.
+도구를 많이 사용할수록 비용이 증가 (단, 컨텍스트 트리밍으로 관리).

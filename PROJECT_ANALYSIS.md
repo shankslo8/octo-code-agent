@@ -7,71 +7,102 @@
 | 항목 | 내용 |
 |------|------|
 | **언어** | Rust (Edition 2021) |
-| **아키텍처** | Workspace 기반 멀티크레이트 |
+| **아키텍처** | 단일 Crate (bin + lib) |
 | **비동기 런타임** | Tokio |
 | **데이터베이스** | SQLite (sqlx) |
-| **LLM 제공자** | Atlas Cloud (OpenAI-compatible) |
+| **LLM 제공자** | Atlas Cloud, OpenRouter (OpenAI-compatible) |
 
 ---
 
 ## 🏗️ 프로젝트 구조
 
-### Cargo Workspace (6개 크레이트)
+### 단일 Crate 구조
 
 ```
 octo-code-agent/
-├── Cargo.toml              # Workspace 루트
-├── crates/
-│   ├── octo-core/          # 핵심 타입 및 트레이트
-│   ├── octo-providers/     # LLM API 제공자
-│   ├── octo-tools/         # 도구 구현체
-│   ├── octo-agent/         # 에이전트 오케스트레이터
-│   ├── octo-storage/       # SQLite 저장소
-│   └── octo-cli/           # CLI 바이너리
-├── docs/                   # 문서
-└── playground/             # 테스트용 폴
+├── Cargo.toml              # 단일 crate (bin + lib)
+├── src/
+│   ├── main.rs             # 바이너리 진입점 (6줄)
+│   ├── lib.rs              # 라이브러리 루트
+│   ├── core/               # 핵심 타입 및 트레이트
+│   │   ├── config.rs       # AppConfig 설정
+│   │   ├── model.rs        # 모델 정의 및 가격 정보
+│   │   ├── message.rs      # 메시지 시스템
+│   │   ├── tool.rs         # Tool 트레이트
+│   │   ├── provider.rs     # Provider 트레이트
+│   │   ├── permission.rs   # 권한 관리
+│   │   └── ...
+│   ├── providers/          # LLM API 제공자
+│   │   └── openai.rs       # OpenAI-compatible API
+│   ├── tools/              # 도구 구현 (17개)
+│   │   ├── bash.rs
+│   │   ├── view.rs
+│   │   ├── write.rs
+│   │   ├── edit.rs
+│   │   ├── ls.rs
+│   │   ├── glob_tool.rs
+│   │   ├── grep.rs
+│   │   ├── coderlm.rs
+│   │   ├── team.rs
+│   │   ├── task_mgmt.rs
+│   │   └── send_message.rs
+│   ├── agent/              # 에이전트 루프
+│   │   ├── agent.rs        # 핵심 Agent 루프
+│   │   ├── event.rs        # AgentEvent 정의
+│   │   └── prompt.rs       # 시스템 프롬프트
+│   ├── storage/            # SQLite 저장소
+│   │   ├── database.rs
+│   │   ├── session_repo.rs
+│   │   └── message_repo.rs
+│   └── cli/                # CLI 인터페이스
+│       ├── interactive.rs
+│       ├── repl.rs
+│       ├── tui/            # ratatui 기반 TUI
+│       └── ...
+├── migrations/             # SQLite 마이그레이션
+└── docs/                   # 문서
 ```
 
-### 의존성 그래프
+### 모듈 의존성 그래프
 
 ```
                     ┌─────────────┐
-                    │   octo-cli  │  ← 진입점
+                    │    cli      │  ← 진입점 (main.rs)
                     └──────┬──────┘
                            │
        ┌───────────────────┼───────────────────┐
        │                   │                   │
 ┌──────▼──────┐    ┌───────▼───────┐   ┌──────▼──────┐
-│ octo-agent  │    │  octo-tools   │   │octo-providers│
+│    agent    │    │     tools     │   │  providers  │
 └──────┬──────┘    └───────┬───────┘   └──────┬──────┘
        │                   │                   │
        └───────────────────┼───────────────────┘
                            │
                     ┌──────▼──────┐
-                    │  octo-core  │  ← 공유 타입 정의
+                    │    core     │  ← 공유 타입 정의
                     └──────┬──────┘
                            │
                     ┌──────▼──────┐
-                    │octo-storage │  ← SQLite 영속성
+                    │   storage   │  ← SQLite 영속성
                     └─────────────┘
 ```
 
-**의존성 규칙**: 단방향 의존 (core ← others ← cli). 순환 의존 없음.
+**의존성 규칙**: 단방향 의존 (storage ← core ← others ← cli). 순환 의존 없음.
 
 ---
 
-## 📦 크레이트별 상세 분석
+## 📦 모듈별 상세 분석
 
-### 1. octo-core (핵심 타입)
+### 1. core (핵심 타입)
 
-**파일**: `crates/octo-core/src/`
+**파일**: `src/core/`
 
 | 모듈 | 역할 |
 |------|------|
-| `config.rs` | AppConfig 설정 로드/관리 |
+| `config.rs` | AppConfig 설정 로드/관리 (JSON 기반) |
 | `error.rs` | 에러 타입 정의 |
 | `message.rs` | Message, ContentPart, Role 등 메시지 시스템 |
-| `model.rs` | ModelId, 모델 정의 및 가격 정보 |
+| `model.rs` | ModelId, 7개 모델 정의 및 가격 정보 |
 | `permission.rs` | PermissionService 트레이트 |
 | `provider.rs` | Provider 트레이트 (LLM 통신 추상화) |
 | `session.rs` | 세션 관리 타입 |
@@ -97,30 +128,27 @@ pub trait PermissionService: Send + Sync {
 }
 ```
 
-### 2. octo-providers (LLM API)
+### 2. providers (LLM API)
 
-**파일**: `crates/octo-providers/src/`
+**파일**: `src/providers/`
 
-Atlas Cloud API와 통신합니다.
+Atlas Cloud 및 OpenRouter API와 통신합니다.
 
 ```rust
 // 공개 API
 pub fn create_provider(config: &AppConfig, model_id: Option<&ModelId>) 
     -> Result<Arc<dyn Provider>, ProviderError>;
-
-pub fn create_provider_for_role(config: &AppConfig, role: ModelRole) 
-    -> Result<Arc<dyn Provider>, ProviderError>;
 ```
 
 **지원 모델 역할**:
-- `Coder` - 기본 코딩 모델
-- `Fast` - 가벼운 작업용
-- `Reasoning` - 복잡한 추론용
-- `LongContext` - 장문 컨텍스트용
+- `Coder` - 기본 코딩 모델 (GLM-5)
+- `Fast` - 가벼운 작업용 (GLM-4.7)
+- `Reasoning` - 복잡한 추론용 (Qwen3 Max)
+- `LongContext` - 장문 컨텍스트용 (Kimi K2.5)
 
-### 3. octo-tools (도구 모음)
+### 3. tools (도구 모음)
 
-**파일**: `crates/octo-tools/src/`
+**파일**: `src/tools/`
 
 | 도구 | 파일 | 설명 | 권한 필요 |
 |------|------|------|-----------|
@@ -142,19 +170,19 @@ pub fn create_provider_for_role(config: &AppConfig, role: ModelRole)
 | `send_message` | `send_message.rs` | 메시지 전송 | ✅ 필요 |
 | `check_inbox` | `send_message.rs` | 메시지 수신 | ❌ 없음 |
 
-### 4. octo-agent (에이전트 엔진)
+### 4. agent (에이전트 엔진)
 
-**파일**: `crates/octo-agent/src/`
+**파일**: `src/agent/`
 
 | 파일 | 역할 |
 |------|------|
-| `agent.rs` | 핵심 Agent 루프 구현 |
+| `agent.rs` | 핵심 Agent 루프 구현 (469줄) |
 | `event.rs` | AgentEvent 정의 (UI 이벤트) |
 | `prompt.rs` | 시스템 프롬프트 생성 |
 
 **Agent 루프 핵심**:
 ```rust
-// Agent.run() 낼시 루프
+// Agent.run() 내부 루프
 loop {
     // 1. LLM에 메시지 스트리밍 요청
     let stream = provider.stream_response(messages, ...).await?;
@@ -180,9 +208,9 @@ loop {
 }
 ```
 
-### 5. octo-storage (데이터 영속성)
+### 5. storage (데이터 영속성)
 
-**파일**: `crates/octo-storage/src/`
+**파일**: `src/storage/`
 
 | 파일 | 역할 |
 |------|------|
@@ -197,10 +225,11 @@ CREATE TABLE sessions (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     message_count INTEGER DEFAULT 0,
-    tokens INTEGER DEFAULT 0,
+    prompt_tokens INTEGER DEFAULT 0,
+    completion_tokens INTEGER DEFAULT 0,
     cost REAL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
 );
 
 -- 메시지 테이블
@@ -211,19 +240,31 @@ CREATE TABLE messages (
     parts_json TEXT NOT NULL,  -- ContentPart JSON 배열
     model_id TEXT,
     usage_json TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES sessions(id)
+);
+
+-- 파일 버전 관리
+CREATE TABLE files (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    content TEXT NOT NULL,
+    version INTEGER DEFAULT 1,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
 );
 ```
 
-### 6. octo-cli (CLI 인터페이스)
+### 6. cli (CLI 인터페이스)
 
-**파일**: `crates/octo-cli/src/`
+**파일**: `src/cli/`
 
 | 파일 | 역할 |
 |------|------|
-| `main.rs` | CLI 진입점, 모드 분기 |
-| `interactive.rs` | 대화형 모드 |
+| `mod.rs` | CLI 진입점, 모드 분기 |
+| `interactive.rs` | 대화형 모드 (모델 선택 UI) |
 | `noninteractive.rs` | -p 플래그 모드 |
 | `repl.rs` | REPL 모드 |
 | `setup.rs` | 초기 설정 (API 키 입력) |
@@ -233,7 +274,7 @@ CREATE TABLE messages (
 
 **CLI 모드**:
 ```bash
-# 대화형 모드 (기본)
+# 대화형 모드 (기본) - 모델 선택 → 작업 입력
 octo-code
 
 # 한 번 실행 모드
@@ -247,6 +288,12 @@ octo-code --tui
 
 # 이전 세션 재개
 octo-code --session <session_id>
+
+# 모델 지정
+octo-code -m "zai-org/glm-5"
+
+# OpenRouter 사용
+octo-code --provider openrouter
 ```
 
 ---
@@ -312,21 +359,22 @@ LLM의 자율성과 안전성의 균형:
          Allow? [y]es / [n]o / [a]lways:
 ```
 
-**권한이 필요한 도구**: bash (위험 명령), write, edit, team_*, task_*, spawn_agent
+**권한이 필요한 도구**: bash (위험 명령), write, edit, team_*, task_*, spawn_agent, send_message
 
 ---
 
 ## 💰 비용 모델
 
-Atlas Cloud를 통한 통합 과금:
+### 지원 모델 및 가격 (2025년 2월 기준)
 
-| 모델 | 입력 $/M | 출력 $/M | 특징 |
-|------|---------|---------|------|
-| `zai-org/glm-5` | $0.80 | $2.56 | 에이전트 최적화 |
-| `moonshotai/kimi-k2.5` | $0.50 | $2.50 | 초장문 컨텍스트 |
-| `qwen/qwen3-max-2026-01-23` | $1.20 | $6.00 | 플래그십 |
-| `minimaxai/minimax-m2.1` | $0.30 | $0.30 | 230B MoE |
-| `deepseek-ai/deepseek-v3.2-speciale` | $0.27 | $0.41 | 기본값, 최저가 |
+| 모델 | 벤더 | 입력 $/M | 출력 $/M | 컨텍스트 | 특징 |
+|------|------|---------|---------|---------|------|
+| **GLM-5** | Zhipu AI | $0.80 | $2.56 | 202K | 745B MoE, 기본 모델 |
+| **GLM-4.7** | Zhipu AI | $0.52 | $1.75 | 202K | 경제적, 131K output |
+| **DeepSeek V3.2** | DeepSeek | $0.26 | $0.38 | 163K | 685B MoE, 최저가 |
+| **Qwen3 Max** | Alibaba | $1.20 | $6.00 | 252K | Flagship reasoning |
+| **Qwen3 Coder** | Alibaba | $0.78 | $3.80 | 262K | 480B MoE, 코드 특화 |
+| **Kimi K2.5** | Moonshot | $0.50 | $2.50 | 262K | Deep reasoning |
 
 **비용 계산**:
 ```
@@ -345,13 +393,15 @@ Atlas Cloud를 통한 통합 과금:
 | `serde` / `serde_json` | 직렬화 |
 | `anyhow` / `thiserror` | 에러 처리 |
 | `reqwest` | HTTP 클라이언트 |
-| `sqlx` | SQLite ORM |
+| `sqlx` | SQLite ORM + 마이그레이션 |
 | `clap` | CLI 파싱 |
 | `ratatui` | TUI 프레임워크 |
 | `crossterm` | 터미널 제어 |
 | `tokio-stream` | 스트리밍 |
 | `uuid` | UUID 생성 |
 | `chrono` | 날짜/시간 |
+| `glob` | 파일 패턴 검색 |
+| `regex` | 정규식 |
 
 ---
 
@@ -380,12 +430,13 @@ cargo install --path .
 
 octo-code-agent는 **Rust 기반의 AI 코딩 어시스턴트**로:
 
-1. **Workspace 구조**: 6개 크레이트로 모듈화, 단방향 의존
+1. **단일 Crate 구조**: 단순한 bin + lib 구조, workspace 아님
 2. **Agent Loop**: LLM이 자율적으로 도구를 호출하며 작업 수행
 3. **Streaming**: 실시간 토큰 출력으로 UX 개선
 4. **Multi-modal**: 대화형, REPL, TUI, 비대화형 모드 지원
 5. **Safety**: 권한 시스템으로 위험 작업 보호
 6. **Persistence**: SQLite로 세션/메시지 저장
-7. **Cost-aware**: Atlas Cloud 통합으로 투명한 과금
+7. **Cost-aware**: Atlas Cloud/OpenRouter 통합으로 투명한 과금
+8. **Multi-provider**: Atlas Cloud와 OpenRouter 동시 지원
 
 **핵심 가치**: 개발자가 자연어로 코딩 작업을 의뢰하면, AI가 파일 읽기 → 분석 → 수정 → 테스트까지 **자율적으로 수행**합니다.

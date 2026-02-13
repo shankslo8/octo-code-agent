@@ -8,26 +8,21 @@
 
 ### Prerequisites
 
-- [Rust](https://rustup.rs/) 1.70 or higher
-- Atlas Cloud API key
+- [Rust](https://rustup.rs/) 1.75 or higher
+- Atlas Cloud or OpenRouter API key
 
 ### Install from Source
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/johunsang/octo-code-agent
 cd octo-code-agent
 
 # Install
+cargo install --path .
+
+# Or release build
 make install
-# or
-cargo install --path crates/octo-cli
-```
-
-### Automated Installation Script
-
-```bash
-curl -fsSL https://example.com/install.sh | sh
 ```
 
 ---
@@ -40,23 +35,67 @@ You will be prompted to enter your API key on first run:
 
 ```bash
 $ octo-code
-🔑 Enter your Atlas Cloud API key: sk-...
-✅ Configuration saved to ~/.config/octo-code/config.toml
+🔑 Enter your Atlas Cloud API key (press Enter for OpenRouter): sk-...
+✅ Configuration saved.
 ```
 
 ### 2. Manual Configuration
 
-You can also manually create the configuration file at `~/.config/octo-code/config.toml`:
+You can also manually create the configuration file:
 
-```toml
-[atlas]
-api_key = "sk-your-api-key-here"
+**macOS:**
+```bash
+mkdir -p ~/Library/Application\ Support/octo-code
+cat > ~/Library/Application\ Support/octo-code/config.json << 'EOF'
+{
+  "api_key": "sk-your-atlas-api-key",
+  "api_keys": ["sk-your-atlas-api-key"],
+  "openrouter_api_key": "sk-your-openrouter-key",
+  "provider_type": "atlas_cloud",
+  "base_url": "https://api.atlascloud.ai",
+  "agent": {
+    "coder_model": "zai-org/glm-5",
+    "fast_model": "zai-org/glm-4.7",
+    "reasoning_model": "qwen/qwen3-max-2026-01-23",
+    "long_context_model": "moonshotai/kimi-k2.5",
+    "max_tokens": 16384
+  },
+  "shell": {
+    "path": "/bin/bash",
+    "args": []
+  },
+  "context_paths": [
+    "CLAUDE.md",
+    "CLAUDE.local.md",
+    "octo-code.md"
+  ],
+  "debug": false
+}
+EOF
+```
 
-# Optional: Default model settings
-[models]
-default = "deepseek-ai/deepseek-v3.2-speciale"
-coder = "zai-org/glm-5"
-reasoning = "qwen/qwen3-max-2026-01-23"
+**Linux:**
+```bash
+mkdir -p ~/.config/octo-code
+cat > ~/.config/octo-code/config.json << 'EOF'
+{
+  "api_key": "sk-your-api-key",
+  "provider_type": "atlas_cloud"
+}
+EOF
+```
+
+### 3. Environment Variables
+
+```bash
+# Using Atlas Cloud
+export ATLAS_API_KEY="sk-your-api-key"
+
+# Or using OpenRouter
+export OPENROUTER_API_KEY="sk-your-api-key"
+
+# Multiple keys for load balancing
+export ATLAS_API_KEYS="key1,key2,key3"
 ```
 
 ---
@@ -70,9 +109,18 @@ Running without a prompt starts interactive mode:
 ```bash
 $ octo-code
 🐙 octo-code v0.1.0
-💬 Enter your question (quit: exit, /help: help)
 
-> Analyze the structure of this project
+Select a model:
+1. GLM-5 (zai-org/glm-5) - $0.80/$2.56 per 1M tokens [default]
+2. GLM-4.7 (zai-org/glm-4.7) - $0.52/$1.75 per 1M tokens
+3. DeepSeek V3.2 (deepseek-ai/deepseek-v3.2-speciale) - $0.26/$0.38 per 1M tokens
+4. Qwen3 Max (qwen/qwen3-max-2026-01-23) - $1.20/$6.00 per 1M tokens
+5. Qwen3 Coder (Qwen/Qwen3-Coder) - $0.78/$3.90 per 1M tokens
+6. Kimi K2.5 (moonshotai/kimi-k2.5) - $0.50/$2.50 per 1M tokens
+
+Select (1-6, default: 1): 1
+
+octo> Analyze the structure of this project
 🔍 Exploring files...
 ...
 ```
@@ -110,10 +158,15 @@ USAGE:
 
 OPTIONS:
     -p, --prompt <PROMPT>     Single prompt to execute
-    --repl                    Run in REPL mode
-    --tui                     Run in TUI mode
-    --session <SESSION_ID>    Resume a previous session
-    --model <MODEL_ID>        Specify which model to use
+    -c, --cwd <PATH>          Specify working directory
+    -f, --output-format <FMT> Output format (text, json) [default: text]
+    -q, --quiet               Suppress progress indicators
+        --repl                Run in REPL mode
+        --tui                 Run in TUI mode
+        --session <SESSION_ID> Resume a previous session
+    -m, --model <MODEL_ID>    Specify which model to use
+        --provider <PROVIDER> API provider (atlas, openrouter)
+    -d, --debug               Enable debug logging
     -h, --help                Display help
     -V, --version             Display version
 ```
@@ -126,12 +179,14 @@ Special commands you can use during a conversation:
 
 | Command | Description |
 |---------|-------------|
-| `/quit`, `/q` | Exit the application |
+| `/quit`, `/q`, `exit` | Exit the application |
 | `/help`, `/h` | Show help information |
 | `/clear` | Clear the screen |
 | `/sessions` | List saved sessions |
 | `/session <ID>` | Load a specific session |
 | `/new` | Start a new session |
+| `/model` | Check current model |
+| `/cost` | Check token usage and cost |
 
 ---
 
@@ -206,13 +261,21 @@ Some tools require user confirmation:
 | `ls` | ❌ None | List directories |
 | `glob` | ❌ None | File pattern search |
 | `grep` | ❌ None | Code search |
+| `coderlm` | ❌ None | Code intelligence |
+| `task_get` | ❌ None | Get task |
+| `task_list` | ❌ None | List tasks |
+| `check_inbox` | ❌ None | Check inbox |
 | `write` | ✅ Required | Create/write files |
 | `edit` | ✅ Required | Modify files |
 | `bash` | ✅ Dangerous | Execute shell commands |
 | `team_create` | ✅ Required | Create teams |
+| `team_delete` | ✅ Required | Delete teams |
 | `spawn_agent` | ✅ Required | Spawn agents |
+| `task_create` | ✅ Required | Create tasks |
+| `task_update` | ✅ Required | Update tasks |
+| `send_message` | ✅ Required | Send messages |
 
-**Auto-approved commands**: `ls`, `pwd`, `echo`, `cat`, `git status`, `git log`, and other safe commands.
+**Auto-approved commands**: `ls`, `pwd`, `echo`, `cat`, `git status`, `git log`, `git diff`, and other safe commands.
 
 **Permission prompt example**:
 ```
@@ -227,6 +290,10 @@ Allow? [y]es / [n]o / [a]lways:
 ### Automatic Saving
 
 All conversations are automatically saved to a SQLite database.
+
+**Database location:**
+- macOS: `~/Library/Application Support/octo-code/octo-code.db`
+- Linux: `~/.local/share/octo-code/octo-code.db`
 
 ### List Sessions
 
@@ -261,28 +328,35 @@ Run multiple AI agents in parallel to divide complex tasks.
 
 ### Create Team
 
-```
-> @team octo-code feature-x-team "Implement new feature"
-```
-
-### Assign Tasks
+The AI automatically uses the `team_create` tool:
 
 ```
-> @task octo-code feature-x-team "Design database schema"
-> @task octo-code feature-x-team "Implement API endpoints"
-> @task octo-code feature-x-team "Write unit tests"
+> Set up a team to create a Next.js landing page
 ```
 
-### Check Task Status
+```
+[team_create: landing-page]
+[spawn_agent: layout]    ← layout + navigation
+[spawn_agent: hero]      ← hero section + CTA
+[spawn_agent: features]  ← feature cards + footer
+```
+
+### Task Management
+
+Agents are coordinated via file-based task board:
 
 ```
-> @list octo-code feature-x-team
+~/.octo-code/
+├── teams/{team-name}/
+│   ├── config.json         # Team config
+│   └── inboxes/            # Per-agent inboxes
+└── tasks/{team-name}/      # Task board
 ```
 
 ### Delete Team
 
 ```
-> @delete octo-code feature-x-team
+> Delete the landing-page team
 ```
 
 ---
@@ -326,23 +400,39 @@ $ octo-code -p "Write API documentation to docs/api.md"
 $ octo-code -p "Remove duplicate code and refactor"
 ```
 
+### Example 6: Use Specific Model
+
+```bash
+$ octo-code -m "deepseek-ai/deepseek-v3.2-speciale" -p "Optimize this code"
+```
+
+### Example 7: Use OpenRouter
+
+```bash
+$ export OPENROUTER_API_KEY="sk-..."
+$ octo-code --provider openrouter -p "Review this code"
+```
+
 ---
 
 ## 💰 Pricing Information
 
-Billed through Atlas Cloud.
+Costs are incurred based on API usage.
 
-| Model | Input $/1M tokens | Output $/1M tokens |
-|-------|-------------------|--------------------|
-| `deepseek-ai/deepseek-v3.2-speciale` | $0.27 | $0.41 |
-| `zai-org/glm-5` | $0.80 | $2.56 |
-| `moonshotai/kimi-k2.5` | $0.50 | $2.50 |
-| `qwen/qwen3-max-2026-01-23` | $1.20 | $6.00 |
+| Model | Input $/1M tokens | Output $/1M tokens | Context |
+|-------|-------------------|--------------------|---------|
+| `zai-org/glm-5` | $0.80 | $2.56 | 202K |
+| `zai-org/glm-4.7` | $0.52 | $1.75 | 202K |
+| `deepseek-ai/deepseek-v3.2-speciale` | $0.26 | $0.38 | 163K |
+| `qwen/qwen3-max-2026-01-23` | $1.20 | $6.00 | 252K |
+| `Qwen/Qwen3-Coder` | $0.78 | $3.90 | 262K |
+| `moonshotai/kimi-k2.5` | $0.50 | $2.50 | 262K |
 
 **Cost-saving tips**:
 - `-p` mode runs without a session, reducing history costs
-- Use `Fast` models for small tasks
+- Use `GLM-4.7` or `DeepSeek V3.2` for small tasks
 - Agent loops accumulate input tokens with each iteration
+- Use `--quiet` option to monitor token usage in real-time
 
 ---
 
@@ -351,10 +441,18 @@ Billed through Atlas Cloud.
 ### API Key Error
 
 ```
-Error: Atlas API key not found
+Error: No API key found
 ```
 
-Solution: Check the `~/.config/octo-code/config.toml` file.
+Solution:
+```bash
+# Check environment variables
+export ATLAS_API_KEY="sk-your-key"
+
+# Or check config file
+ls ~/Library/Application\ Support/octo-code/config.json  # macOS
+ls ~/.config/octo-code/config.json                        # Linux
+```
 
 ### Build Failure
 
@@ -363,14 +461,27 @@ Solution: Check the `~/.config/octo-code/config.toml` file.
 cargo update
 
 # Clean build
-make clean && make build
+cargo clean && cargo build --release
 ```
 
 ### Database Error
 
 ```bash
 # Reinitialize database
-rm ~/.local/share/octo-code/octo-code.db
+rm ~/Library/Application\ Support/octo-code/octo-code.db  # macOS
+rm ~/.local/share/octo-code/octo-code.db                   # Linux
+```
+
+### Rate Limit Error
+
+```
+Rate limited. Waiting 5s... (attempt 1/3)
+```
+
+This message indicates automatic retry. You can set multiple API keys for load balancing:
+
+```bash
+export ATLAS_API_KEYS="key1,key2,key3"
 ```
 
 ---
@@ -379,7 +490,7 @@ rm ~/.local/share/octo-code/octo-code.db
 
 - [Architecture Document (Korean)](architecture-ko.md)
 - [Architecture Document (English)](architecture-en.md)
-- [GitHub Issues](https://github.com/your-repo/octo-code-agent/issues)
+- [GitHub Issues](https://github.com/johunsang/octo-code-agent/issues)
 
 ---
 

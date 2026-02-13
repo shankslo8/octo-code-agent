@@ -4,8 +4,8 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      octo-cli (binary)                       │
-│  main.rs → clap parsing → build_app() → repl / noninteractive│
+│                    octo-code (binary)                        │
+│  main.rs → clap parsing → build_app() → repl / interactive │
 └──────────┬──────────────────────────┬───────────────────────┘
            │                          │
     ┌──────▼──────┐          ┌────────▼────────┐
@@ -16,77 +16,90 @@
            └──────────┬───────────────┘
                       │
               ┌───────▼────────┐
-              │   octo-agent   │ ← core orchestrator
-              │   Agent.run()  │
+              │     agent      │ ← core orchestrator
+              │  Agent.run()   │
               └───────┬────────┘
                       │
          ┌────────────┼────────────┐
          │            │            │
   ┌──────▼──────┐ ┌───▼───┐ ┌─────▼─────┐
-  │  Provider   │ │ Tools │ │ Permission│
-  │(Atlas Cloud)│ │  (7)  │ │  Service  │
-  └─────────────┘ └───────┘ └───────────┘
-         │
-  ┌──────▼──────┐
-  │  octo-core  │ ← shared type definitions
+  │   Provider  │ │ Tools │ │ Permission│
+  │(Atlas Cloud)│ │ (17)  │ │  Service  │
+  │(OpenRouter) │ └───────┘ └───────────┘
   └─────────────┘
          │
+  ┌──────▼──────┐
+  │    core     │ ← shared type definitions
+  └──────┬──────┘
+         │
   ┌──────▼───────┐
-  │ octo-storage │ ← SQLite persistence
+  │   storage    │ ← SQLite persistence
   └──────────────┘
 ```
 
-### Cargo Workspace Structure (6 crates)
+### Single Crate Structure
 
-| crate | Role | Depends On |
-|-------|------|------------|
-| `octo-core` | Types, traits, errors, config | None (bottom layer) |
-| `octo-providers` | Atlas Cloud API communication | octo-core |
-| `octo-tools` | Tool execution (bash, edit, etc.) | octo-core |
-| `octo-agent` | Agent loop orchestration | octo-core |
-| `octo-storage` | SQLite DB | octo-core |
-| `octo-cli` | Binary entry point | All of the above |
+| Module | Path | Role | Depends On |
+|--------|------|------|------------|
+| `core` | `src/core/` | Types, traits, errors, config | None (bottom layer) |
+| `providers` | `src/providers/` | Atlas Cloud/OpenRouter API | core |
+| `tools` | `src/tools/` | Tool execution (17 tools) | core |
+| `agent` | `src/agent/` | Agent loop orchestration | core |
+| `storage` | `src/storage/` | SQLite DB | core |
+| `cli` | `src/cli/` | Binary entry point | All of the above |
 
-Dependencies flow in **one direction**: core ← providers/tools/agent/storage ← cli.
-No circular dependencies, so each crate can be tested independently.
+Dependencies flow in **one direction**: storage → core → providers/tools/agent → cli.
+No circular dependencies, so each module can be tested independently.
 
 ---
 
-## 2. Atlas Cloud Unified API
+## 2. LLM Provider Integration
 
-### 2.1 Single Key, Single Endpoint
+### 2.1 Dual Provider Support
 
-All LLM calls are routed through the **Atlas Cloud** gateway:
+Supports both **Atlas Cloud** (default) and **OpenRouter**:
 
 ```
-Endpoint: https://api.atlascloud.ai/api/v1/chat/completions
-Auth: Authorization: Bearer <ATLAS_API_KEY>
+Atlas Cloud:  https://api.atlascloud.ai/api/v1/chat/completions
+OpenRouter:   https://openrouter.ai/api/v1/chat/completions
+
+Auth: Authorization: Bearer <API_KEY>
 Format: OpenAI ChatCompletion compatible
 ```
 
-**Advantage**: One API key for all models. No separate Provider implementations needed.
+**Advantages**:
+- One Atlas Cloud API key for all models
+- Same models available via OpenRouter
+- Runtime switching with `--provider` flag
 
-### 2.2 Registered Models (5)
+### 2.2 Registered Models (6)
 
-| Model ID | Vendor | Highlights | Input $/M | Output $/M |
-|---------|--------|------------|-----------|------------|
-| `zai-org/glm-5` | Zhipu AI | Agent-optimized, multi-step reasoning | $0.80 | $2.56 |
-| `moonshotai/kimi-k2.5` | Moonshot AI | Ultra-long context, native multimodality | $0.50 | $2.50 |
-| `qwen/qwen3-max-2026-01-23` | Alibaba | Flagship, code generation | $1.20 | $6.00 |
-| `minimaxai/minimax-m2.1` | MiniMax | 230B MoE, SWE-bench 74% | $0.30 | $0.30 |
-| `deepseek-ai/deepseek-v3.2-speciale` | DeepSeek | 685B MoE, cheapest, IOI gold medal | $0.27 | $0.41 |
+| Model ID | Vendor | Highlights | Input $/M | Output $/M | Context |
+|---------|--------|------------|-----------|------------|---------|
+| `zai-org/glm-5` | Zhipu AI | Agent-optimized, multi-step reasoning | $0.80 | $2.56 | 202K |
+| `zai-org/glm-4.7` | Zhipu AI | Cost-effective, fast response | $0.52 | $1.75 | 202K |
+| `deepseek-ai/deepseek-v3.2-speciale` | DeepSeek | 685B MoE, lowest price | $0.26 | $0.38 | 163K |
+| `qwen/qwen3-max-2026-01-23` | Alibaba | Flagship, strong reasoning | $1.20 | $6.00 | 252K |
+| `Qwen/Qwen3-Coder` | Alibaba | 480B MoE, code-optimized | $0.78 | $3.90 | 262K |
+| `moonshotai/kimi-k2.5` | Moonshot AI | Ultra-long context, multimodal | $0.50 | $2.50 | 262K |
 
-**Default model**: `deepseek-ai/deepseek-v3.2-speciale` (cheapest with excellent performance)
+**Default model**: `zai-org/glm-5` (agent-optimized)
+
+**Budget model**: `deepseek-ai/deepseek-v3.2-speciale` (lowest price)
 
 ### 2.3 Configuration
 
-```
-Env var: ATLAS_API_KEY=your-key-here
-Or config file:
-{
-  "api_key": "your-key-here",
-  "base_url": "https://api.atlascloud.ai/api"
-}
+```bash
+# Environment variables
+export ATLAS_API_KEY="your-key-here"
+export OPENROUTER_API_KEY="your-key-here"
+
+# Or automatic setup on first run
+octo-code
+
+# Config file (JSON format)
+# macOS: ~/Library/Application Support/octo-code/config.json
+# Linux: ~/.config/octo-code/config.json
 ```
 
 Key detection priority: `ATLAS_API_KEY` → `ATLAS_CLOUD_API_KEY` → `OPENAI_API_KEY` → `ANTHROPIC_API_KEY`
@@ -133,12 +146,14 @@ Agent.run(session_id, messages, user_input)
   │    └─ loop {                  ← ★ core loop
   │         │
   │         ├─ provider.stream_response(messages, system_prompt, tools)
-  │         │   → HTTP POST to Atlas Cloud (SSE streaming)
+  │         │   → HTTP POST (SSE streaming)
   │         │
   │         ├─ process_stream() → (assistant_msg, finish_reason, usage)
-  │         │   → assembles Message object from streaming events
+  │         │   → assembles Message from streaming events
   │         │
   │         ├─ messages.push(assistant_msg)
+  │         │
+  │         ├─ context window management (trim old messages)
   │         │
   │         └─ match finish_reason {
   │              EndTurn → return Ok(())     ← exit loop
@@ -148,7 +163,7 @@ Agent.run(session_id, messages, user_input)
   │                }
   │                messages.push(tool_results)
   │                continue                  ← continue loop
-  │              }
+   │              }
   │            }
   │
   └─ return (rx, cancel_token)   ← CLI receives events
@@ -165,6 +180,21 @@ Agent.run(session_id, messages, user_input)
 
 **The loop only continues on ToolUse** — this is the mechanism that enables "autonomous agent behavior."
 
+### 3.4 Rate Limit Handling
+
+```rust
+// 3 retries + exponential backoff
+for attempt in 0..3 {
+    match provider.stream_response(...).await {
+        Ok(stream) => break,
+        Err(RateLimited { retry_after_ms }) => {
+            let wait = retry_after_ms * (attempt + 1);
+            sleep(wait).await;
+        }
+    }
+}
+```
+
 ---
 
 ## 4. Streaming Architecture
@@ -177,15 +207,15 @@ LLM responses take seconds to tens of seconds. Waiting for the full response res
 ### 4.2 Three-Stage Event Transformation Pipeline
 
 ```
-[Atlas Cloud]           [Provider]              [Agent]              [CLI]
+[LLM API]               [Provider]              [Agent]              [CLI]
  SSE bytes  ──parse──→  ProviderEvent  ──process──→  AgentEvent  ──render──→  Terminal
- (HTTP)                  (internal      (UI events)           (stdout)
+ (HTTP)                  (internal                 (UI events)           (stdout)
                           abstraction)
 ```
 
 **Stage 1: Provider (SSE → ProviderEvent)**
 ```rust
-// openai.rs - parse SSE bytes into abstract events
+// providers/openai.rs - parse SSE bytes into abstract events
 match delta {
     content → yield ProviderEvent::ContentDelta { text }
     tool_calls → yield ProviderEvent::ToolUseStart { id, name }
@@ -195,7 +225,7 @@ match delta {
 
 **Stage 2: Agent (ProviderEvent → AgentEvent)**
 ```rust
-// agent.rs - process_stream()
+// agent/agent.rs - process_stream()
 match event {
     ContentDelta { text } → {
         current_text += text;             // accumulate in message
@@ -209,7 +239,7 @@ match event {
 
 **Stage 3: CLI (AgentEvent → Terminal Output)**
 ```rust
-// output.rs
+// cli/output.rs
 match event {
     ContentDelta { text }     → print!("{text}")     // real-time typewriter
     ToolCallStart { name }    → eprintln!("[tool: {name}]")
@@ -246,23 +276,35 @@ LLMs can **only produce text**. They cannot read files or execute commands.
 ### 5.2 Tool Interface
 
 ```rust
-trait Tool: Send + Sync {
+#[async_trait]
+pub trait Tool: Send + Sync {
     fn definition(&self) -> ToolDefinition;    // JSON Schema (sent to LLM)
-    async fn run(&self, call, ctx) -> Result<ToolResult, ToolError>;
+    async fn run(&self, call: &ToolCall, ctx: &ToolContext) 
+        -> Result<ToolResult, ToolError>;
 }
 ```
 
-### 5.3 Current Tool List
+### 5.3 Current Tool List (17 tools)
 
-| Tool | Role | Permission Required |
-|------|------|---------------------|
-| `bash` | Shell command execution | Yes, except safe commands |
-| `view` | Read files | No |
-| `write` | Create/overwrite files | Yes |
-| `edit` | Modify files via string replacement | Yes |
-| `ls` | Directory listing | No |
-| `glob` | Search files by pattern | No |
-| `grep` | Search code by regex | No |
+| Category | Tool | Role | Permission Required |
+|----------|------|------|---------------------|
+| File | `view` | Read files | ❌ None |
+| | `write` | Create/overwrite files | ✅ Required |
+| | `edit` | Modify files via string replacement | ✅ Required |
+| Search | `ls` | Directory listing | ❌ None |
+| | `glob` | Search files by pattern | ❌ None |
+| | `grep` | Search code by regex | ❌ None |
+| Execute | `bash` | Shell command execution | ✅ Dangerous |
+| Code | `coderlm` | CodeRLM code intelligence | ❌ None |
+| Team | `team_create` | Create team | ✅ Required |
+| | `team_delete` | Delete team | ✅ Required |
+| | `spawn_agent` | Spawn agent | ✅ Required |
+| Task | `task_create` | Create task | ✅ Required |
+| | `task_get` | Get task | ❌ None |
+| | `task_update` | Update task | ✅ Required |
+| | `task_list` | List tasks | ❌ None |
+| Message | `send_message` | Send message | ✅ Required |
+| | `check_inbox` | Check inbox | ❌ None |
 
 ---
 
@@ -271,13 +313,14 @@ trait Tool: Send + Sync {
 ### 6.1 ContentPart (Polymorphic Messages)
 
 ```rust
-enum ContentPart {
-    Text { text }
-    Reasoning { text }
-    ToolCall { id, name, input }
-    ToolResult { tool_call_id, content, is_error }
-    Finish { reason, timestamp }
-    Image { data, media_type }
+pub enum ContentPart {
+    Text { text: String }
+    Reasoning { text: String }
+    ToolCall { id: String, name: String, input: String }
+    ToolResult { tool_call_id: String, content: String, is_error: bool }
+    Finish { reason: FinishReason, timestamp: DateTime<Utc> }
+    Image { data: String, media_type: String }
+    ImageUrl { url: String }
 }
 ```
 
@@ -302,18 +345,68 @@ Tool execution request
 ## 8. Storage (SQLite)
 
 ```sql
-sessions (id, title, message_count, tokens, cost, timestamps)
-messages (id, session_id, role, parts_json, model_id, usage_json, timestamps)
+-- Sessions table
+sessions (
+    id, title, message_count, 
+    prompt_tokens, completion_tokens, cost,
+    created_at, updated_at
+)
+
+-- Messages table
+messages (
+    id, session_id, role, parts_json, 
+    model_id, usage_json, created_at, updated_at
+)
+
+-- File versions
+files (
+    id, session_id, path, content, 
+    version, created_at, updated_at
+)
 ```
 
 WAL mode, embedded, no server required.
 
 ---
 
-## 9. Full Sequence Diagram
+## 9. Team Collaboration System (Parallel Multi-Agent)
+
+### 9.1 Concept
+
+Automatically decompose complex tasks for parallel processing by multiple agents:
 
 ```
-User          CLI           Agent         Provider      Atlas Cloud     Tool
+User: "Create a Next.js landing page"
+    ↓
+Lead Agent: Task decomposition
+    ├─ spawn_agent: layout (layout + navigation)
+    ├─ spawn_agent: hero (hero section + CTA)
+    └─ spawn_agent: features (feature cards + footer)
+    ↓
+Agents work in parallel → file-based task board for coordination
+    ↓
+Lead Agent: Result integration and verification
+```
+
+### 9.2 File-Based Coordination
+
+```
+~/.octo-code/
+├── teams/{team-name}/
+│   ├── config.json         # Team config, member list
+│   └── inboxes/
+│       └── {agent}.json    # Per-agent message queue
+└── tasks/{team-name}/
+    ├── counter.json        # Task ID counter
+    └── {id}.json           # Individual task
+```
+
+---
+
+## 10. Full Sequence Diagram
+
+```
+User          CLI           Agent         Provider      LLM API       Tool
  │               │               │              │              │            │
  │──"Fix bug"───→│               │              │              │            │
  │               │──run()───────→│              │              │            │
@@ -328,7 +421,7 @@ User          CLI           Agent         Provider      Atlas Cloud     Tool
  │               │               │←─────────────────────────────result─────│
  │               │               │──stream()───→│──HTTP POST──→│            │
  │               │               │              │←─SSE:text────│            │
- │               │←─ContentDelta─│←─ContentDelta│←─SSE:stop────│            │
+ │               │               │              │←─SSE:stop────│            │
  │               │               │  [finish = EndTurn]         │            │
  │               │←─Complete─────│              │              │            │
  │←─[tokens:...]─│               │              │              │            │
@@ -336,7 +429,7 @@ User          CLI           Agent         Provider      Atlas Cloud     Tool
 
 ---
 
-## 10. Cost Calculation
+## 11. Cost Calculation
 
 ```
 Cost = (input tokens / 1M) × input price + (output tokens / 1M) × output price
@@ -344,10 +437,10 @@ Cost = (input tokens / 1M) × input price + (output tokens / 1M) × output price
 
 DeepSeek V3.2 Speciale example:
 ```
-Input  10,000 tokens × $0.27/M = $0.0027
-Output  2,000 tokens × $0.41/M = $0.00082
-Total                           = $0.00352
+Input  10,000 tokens × $0.26/M = $0.0026
+Output  2,000 tokens × $0.38/M = $0.00076
+Total                            = $0.00336
 ```
 
 **Agent loop cost characteristics**: The entire conversation history is re-sent every loop iteration → input tokens accumulate.
-The more tools are used, the cost increases exponentially.
+Cost increases with more tool usage (managed by context trimming).

@@ -33,21 +33,16 @@
 
 ```bash
 # 소스에서 빌드 (Rust 1.75+ 필요)
-git clone https://github.com/anthropics/octo-code-agent
+git clone https://github.com/johunsang/octo-code-agent
 cd octo-code-agent
-cargo build --release
-
-# 설치
-cargo install --path crates/octo-cli
-
-# 또는 직접 복사
-cp target/release/octo-code ~/.local/bin/
+cargo install --path .
 ```
 
-### 원라인 설치
+또는 직접 빌드:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/anthropics/octo-code-agent/main/install.sh | bash
+cargo build --release
+cp target/release/octo-code ~/.local/bin/
 ```
 
 ## API 키 설정
@@ -66,11 +61,11 @@ octo-code
 # Linux: ~/.config/octo-code/config.json
 ```
 
-```json
-{
-  "api_key": "your-key-here",
-  "base_url": "https://api.atlascloud.ai"
-}
+OpenRouter를 사용할 수도 있습니다:
+
+```bash
+export OPENROUTER_API_KEY="your-key-here"
+octo-code --provider openrouter
 ```
 
 ## 사용법
@@ -88,7 +83,7 @@ octo-code -m "zai-org/glm-5"
 # REPL 모드
 octo-code --repl
 
-# TUI 모드
+# TUI 모드 (ratatui 기반)
 octo-code --tui
 
 # 세션 이어하기
@@ -126,18 +121,22 @@ octo-code -d
 
 ## 아키텍처
 
+단일 crate, 6개 모듈 구조:
+
 ```
 octo-code-agent/
-├── crates/
-│   ├── octo-core/       # 핵심 타입, 설정, 에러, 모델 정의
-│   ├── octo-providers/  # LLM API 프로바이더 (OpenAI-compatible)
-│   ├── octo-tools/      # 도구 구현 (17개)
-│   ├── octo-agent/      # 에이전트 루프, 프롬프트, 스트리밍
-│   ├── octo-storage/    # SQLite 세션/메시지 저장
-│   └── octo-cli/        # CLI 바이너리, 인터랙티브 모드, TUI
-├── install.sh           # 원라인 설치 스크립트
-├── Makefile             # 빌드/배포 타겟
-└── .github/workflows/   # CI/CD (테스트, 릴리스 빌드)
+├── Cargo.toml            # 단일 crate (bin + lib)
+├── src/
+│   ├── main.rs           # 진입점
+│   ├── lib.rs            # 모듈 선언
+│   ├── core/             # 핵심 타입, 설정, 에러, 모델 정의
+│   ├── providers/        # LLM API 프로바이더 (OpenAI-compatible)
+│   ├── tools/            # 도구 구현 (17개)
+│   ├── agent/            # 에이전트 루프, 프롬프트, 스트리밍
+│   ├── storage/          # SQLite 세션/메시지 저장
+│   └── cli/              # CLI, 인터랙티브 모드, TUI
+│       └── tui/          # ratatui 기반 터미널 UI
+└── migrations/           # SQLite 마이그레이션
 ```
 
 ### 도구 목록
@@ -223,16 +222,16 @@ octo-code
 cargo build
 
 # 테스트
-cargo test --workspace
+cargo test
 
 # 릴리스 빌드
 cargo build --release
 
 # Clippy
-cargo clippy --workspace
+cargo clippy
 
 # 포맷
-cargo fmt --all
+cargo fmt
 ```
 
 ## 라이선스

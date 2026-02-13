@@ -6,15 +6,15 @@ Thank you for your interest in contributing to Octo Code Agent! This document pr
 
 ### Prerequisites
 
-- Rust 1.70 or higher
+- Rust 1.75 or higher
 - Git
-- An [Atlas Cloud](https://atlas.nomic.ai/) API key (for testing)
+- An [Atlas Cloud](https://atlascloud.ai/) or [OpenRouter](https://openrouter.ai/) API key (for testing)
 
 ### Setting Up Development Environment
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/octo-code-agent
+git clone https://github.com/johunsang/octo-code-agent
 cd octo-code-agent
 
 # Build the project
@@ -24,29 +24,63 @@ cargo build
 cargo test
 
 # Set up your API key
-echo 'ATLAS_API_KEY="your-api-key-here"' > .env
+export ATLAS_API_KEY="your-api-key-here"
+# or
+export OPENROUTER_API_KEY="your-api-key-here"
 ```
 
 ## 📁 Project Structure
 
 ```
 octo-code-agent/
-├── crates/
-│   ├── octo-core/          # Core types and traits
-│   ├── octo-providers/     # LLM API providers
-│   ├── octo-tools/         # Tool implementations
-│   ├── octo-agent/         # Agent orchestrator
-│   ├── octo-storage/       # SQLite persistence
-│   └── octo-cli/          # CLI binary
+├── Cargo.toml              # Single crate configuration (bin + lib)
+├── src/
+│   ├── main.rs             # Binary entry point
+│   ├── lib.rs              # Library root
+│   ├── core/               # Core types and traits
+│   │   ├── config.rs       # Configuration management
+│   │   ├── model.rs        # Model definitions and pricing
+│   │   ├── message.rs      # Message system
+│   │   ├── tool.rs         # Tool trait
+│   │   ├── provider.rs     # Provider trait
+│   │   └── ...
+│   ├── providers/          # LLM API providers
+│   │   └── openai.rs       # OpenAI-compatible API (Atlas Cloud, OpenRouter)
+│   ├── tools/              # Tool implementations (17 tools)
+│   │   ├── bash.rs
+│   │   ├── view.rs
+│   │   ├── write.rs
+│   │   ├── edit.rs
+│   │   ├── ls.rs
+│   │   ├── glob_tool.rs
+│   │   ├── grep.rs
+│   │   ├── coderlm.rs
+│   │   ├── team.rs
+│   │   ├── task_mgmt.rs
+│   │   └── send_message.rs
+│   ├── agent/              # Agent loop implementation
+│   │   ├── agent.rs
+│   │   ├── event.rs
+│   │   └── prompt.rs
+│   ├── storage/            # SQLite persistence
+│   │   ├── database.rs
+│   │   ├── session_repo.rs
+│   │   └── message_repo.rs
+│   └── cli/                # CLI interface
+│       ├── interactive.rs
+│       ├── repl.rs
+│       ├── tui/            # ratatui-based terminal UI
+│       └── ...
+├── migrations/             # SQLite migrations
 ├── docs/                   # Documentation
-└── playground/            # Testing playground
+└── playground/             # Testing playground
 ```
 
 ## 🔧 Development Workflow
 
 ### 1. Finding Issues
 
-Check the [Issues](https://github.com/YOUR_USERNAME/octo-code-agent/issues) page for tasks:
+Check the [Issues](https://github.com/johunsang/octo-code-agent/issues) page for tasks:
 - `good first issue` - Good for newcomers
 - `bug` - Issues to fix
 - `enhancement` - New features to add
@@ -76,14 +110,17 @@ Follow the existing code style:
 # Run all tests
 cargo test
 
-# Run specific crate tests
-cargo test -p octo-tools
-
 # Run with verbose output
 cargo test -- --nocapture
 
 # Test with logging
 RUST_LOG=debug cargo test
+
+# Run clippy
+cargo clippy
+
+# Check formatting
+cargo fmt --check
 ```
 
 ### 5. Committing Changes
@@ -112,12 +149,13 @@ Tools are the building blocks of Octo Code Agent. To add a new tool:
 ### 1. Create the Tool Implementation
 
 ```rust
-// crates/octo-tools/src/your_tool.rs
-use octo_core::tool::{Tool, ToolDefinition, ToolCall, ToolContext, ToolResult};
+// src/tools/your_tool.rs
+use crate::core::tool::{Tool, ToolDefinition, ToolCall, ToolContext, ToolResult, ToolError};
+use async_trait::async_trait;
 
 pub struct YourTool;
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Tool for YourTool {
     fn definition(&self) -> ToolDefinition {
         ToolDefinition {
@@ -136,74 +174,86 @@ impl Tool for YourTool {
         }
     }
 
-    async fn run(&self, call: ToolCall, ctx: ToolContext) -> Result<ToolResult, ToolError> {
+    async fn run(&self, call: &ToolCall, ctx: &ToolContext) -> Result<ToolResult, ToolError> {
+        // Parse input
+        let input: serde_json::Value = serde_json::from_str(&call.input)?;
+        let param1 = input["param1"].as_str().ok_or_else(|| {
+            ToolError::InvalidInput("param1 is required".to_string())
+        })?;
+        
         // Implementation here
-        Ok(ToolResult::Success {
-            content: serde_json::json!({
-                "result": "Success!"
-            }),
-        })
+        Ok(ToolResult::success("Success!".to_string()))
     }
 }
 ```
 
 ### 2. Register the Tool
 
-Add your tool to the tools registry in `crates/octo-tools/src/lib.rs`:
+Add your tool to the tools registry in `src/tools/mod.rs`:
 
 ```rust
 mod your_tool;
+pub use your_tool::YourTool;
 
-// In create_tools() function
-tools.push(Arc::new(your_tool::YourTool));
+// In create_all_tools() function
+tools.push(Arc::new(YourTool));
 ```
 
 ### 3. Add Tests
 
-Write tests for your new tool in `crates/octo-tools/src/tests.rs` or a separate test file.
+Write tests for your new tool in `src/tools/tests.rs`:
+
+```rust
+#[tokio::test]
+async fn test_your_tool() {
+    let tool = YourTool;
+    let call = ToolCall {
+        id: "test-1".to_string(),
+        name: "your_tool".to_string(),
+        input: r#"{"param1": "test"}"#.to_string(),
+    };
+    let ctx = ToolContext::default();
+    
+    let result = tool.run(&call, &ctx).await.unwrap();
+    assert!(!result.is_error);
+}
+```
 
 ## 🔌 Adding New Providers
 
-To add support for a new LLM provider:
+The project uses OpenAI-compatible API format. To add a new provider:
 
-### 1. Create Provider Implementation
+### 1. Update Model Definitions
 
-```rust
-// crates/octo-providers/src/your_provider.rs
-use octo_core::provider::{Provider, ProviderStream, ProviderError};
-
-pub struct YourProvider {
-    api_key: String,
-    base_url: String,
-}
-
-#[async_trait::async_trait]
-impl Provider for YourProvider {
-    async fn stream_response(
-        &self,
-        messages: Vec<Message>,
-        model_id: &ModelId,
-        tools: Option<&[ToolDefinition]>,
-        max_tokens: Option<u32>,
-    ) -> Result<ProviderStream, ProviderError> {
-        // Implementation here
-    }
-}
-```
-
-### 2. Register Provider Factory
-
-Add to `crates/octo-providers/src/lib.rs`:
+Add your model to `src/core/model.rs`:
 
 ```rust
-mod your_provider;
-
-// In create_provider() or similar factory function
-match model_id.provider() {
-    "your_provider" => Ok(Arc::new(your_provider::YourProvider::new(config))),
-    // ... other providers
-}
+m.insert(
+    ModelId("your-vendor/model-name".into()),
+    Model {
+        id: ModelId("your-vendor/model-name".into()),
+        vendor: ModelVendor::YourVendor,
+        display_name: "Your Model".into(),
+        context_window: 131_072,
+        max_output_tokens: 32_768,
+        capabilities: ModelCapabilities {
+            supports_tool_use: true,
+            supports_streaming: true,
+            supports_thinking: true,
+            supports_images: false,
+        },
+        pricing: ModelPricing {
+            cost_per_1m_input: 0.50,
+            cost_per_1m_output: 1.50,
+            cost_per_1m_input_cached: None,
+        },
+    },
+);
 ```
+
+### 2. Update Provider Factory (if needed)
+
+Modify `src/providers/openai.rs` if the provider requires special handling.
 
 ## 📝 Documentation
 
